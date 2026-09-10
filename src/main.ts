@@ -3,6 +3,7 @@ import { Vec2, Mat, apply, side, normalize, dist } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
+import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
 import { Plan, Stroke, Mode, defaultPlan, demoPlan, spiralDemoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
@@ -39,8 +40,23 @@ function isCloth(b: FlatFoldBundle | ClothBundle | null): b is ClothBundle { ret
 
 const flatCanvas = document.getElementById('flat') as HTMLCanvasElement;
 const foldedCanvas = document.getElementById('folded') as HTMLCanvasElement;
+const folded3dCanvas = document.getElementById('folded3d') as HTMLCanvasElement;
+const stackEl = document.getElementById('stack')!;
 const renderer = new Renderer(flatCanvas, foldedCanvas);
 renderer.dpr = window.devicePixelRatio || 1;
+
+let view3d: View3D | null = null;
+try { view3d = new View3D(folded3dCanvas); } catch (e) { console.warn('3D view unavailable', e); }
+let gridKey = '';
+/** push the current bundle (or live cloth) positions into the 3D view */
+function sync3d(px: Float32Array, py: Float32Array, pz: Float32Array, reframe: boolean): void {
+  if (!view3d) return;
+  const key = `${sim.N}x${sim.M}x${plan.W}x${plan.H}`;
+  if (key !== gridKey) { view3d.setGrid(sim.N, sim.M, plan.W, plan.H); gridKey = key; reframe = true; }
+  view3d.setPositions(px, py, pz);
+  if (reframe) view3d.frame();
+}
+function is3d(): boolean { return view.three && !!view3d; }
 
 let gpu: GpuSolver | null = null;
 try {
@@ -50,9 +66,9 @@ try {
   gpu = null;
 }
 
-const view: ViewOpts = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false };
+const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false, three: true };
 
-type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre';
+type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
 const brush = { r: 3, amount: 0.8, pen: 10, dye: 0 };
 let playing = false;
@@ -79,7 +95,8 @@ function touched(): void {
 
 function replay(): void {
   sim.resetDye();
-  for (const s of plan.strokes) sim.applyStroke(s, plan.params);
+  const fp = footprintOracle();
+  for (const s of plan.strokes) sim.applyStroke(s, plan.params, fp);
   gpu?.upload();
   dirty = true;
 }
@@ -108,10 +125,16 @@ function rebuildGeometry(): void {
 
 function finishGeometry(): void {
   sim.setBundle(bundle!);
+  sync3d(bundle!.px, bundle!.py, bundle!.pz, true);
   sim.rebuildPress(plan.bands, plan.params);
   gpu?.uploadStatic();
   replay();
   touched();
+}
+
+/** visibility oracle for 3D strokes */
+function footprintOracle(): ((p: Vec3, d: Vec3, r: number) => { ids: Int32Array; dist: Float32Array }) | undefined {
+  return view3d ? (p, d, r) => view3d!.footprint(p, d, r) : undefined;
 }
 
 function rebuildTwist(): void {
@@ -127,7 +150,9 @@ twistWorker.onmessage = (e: MessageEvent) => {
   const m = e.data;
   if (m.id !== twistRun) return; // superseded run
   if (m.type === 'progress') {
+    const first = !liveCloth;
     liveCloth = m.view;
+    sync3d(m.view.x, m.view.y, m.view.z, first);
     twistStatus = `${m.phase} ${(m.frac * 100).toFixed(0)}%`;
     dirty = true;
   } else if (m.type === 'done') {
@@ -226,6 +251,7 @@ const HINTS: Record<Tool, string> = {
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
   centre: 'click the flat cloth where you pinch',
+  orbit: 'drag to orbit · wheel to zoom · shift-drag to pan (right-drag orbits with any tool)',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -282,10 +308,17 @@ function buildSidebar(): void {
   const partSel = el('select', {}, ...[61, 81, 101, 121, 161].map((n) => el('option', { value: n }, `${n}² particles`))) as HTMLSelectElement;
   partSel.value = String([61, 81, 101, 121, 161].includes(plan.N) ? plan.N : 101);
   partSel.addEventListener('change', () => { plan.N = parseInt(partSel.value); reconfigure(); });
+  toolButtons.inspect = btn('Inspect', () => setTool('inspect'));
+  toolButtons.dye = btn('Dye', () => setTool('dye'));
+  toolButtons.band = btn('Band', () => setTool('band'));
+  toolButtons.fold = btn('Draw fold line', () => setTool('fold'));
   const cx = numberInput(() => plan.twist.c.x, (v) => { plan.twist.c.x = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const refreshCentre = () => { cx.value = String(plan.twist.c.x); cy.value = String(plan.twist.c.y); };
   toolButtons.centre = btn('Pick', () => setTool('centre'));
+  toolButtons.orbit = btn('Orbit', () => setTool('orbit'));
+  const styleSel = el('select', {}, el('option', { value: 'mesh' }, 'mesh'), el('option', { value: 'splat' }, 'splats')) as HTMLSelectElement;
+  styleSel.addEventListener('change', () => { if (view3d) view3d.style = styleSel.value as 'mesh' | 'splat'; dirty = true; });
   modeButtons = { fold: btn('Fold', () => setMode('fold')), twist: btn('Twist', () => setMode('twist')) };
   resRow = row(el('label', {}, 'resolution'), resSel);
   foldControls = el('div', {},
@@ -310,11 +343,6 @@ function buildSidebar(): void {
       row(btn('Run twist', () => rebuildTwist())),
       el('div', { class: 'note' }, 'Pinch the centre, twist, release, pat flat. A particle cloth on a table with self-collision; the core grows as fabric wraps onto it. Runs a few seconds.'));
   (window as unknown as { refreshCentre: () => void }).refreshCentre = refreshCentre;
-
-  toolButtons.inspect = btn('Inspect', () => setTool('inspect'));
-  toolButtons.dye = btn('Dye', () => setTool('dye'));
-  toolButtons.band = btn('Band', () => setTool('band'));
-  toolButtons.fold = btn('Draw fold line', () => setTool('fold'));
 
   const stepCounter = el('span', { class: 'val' }, '0');
   setInterval(() => { stepCounter.textContent = String(sim.t); }, 250);
@@ -367,12 +395,15 @@ function buildSidebar(): void {
       slider('capacity', 0.1, 3, 0.05, () => plan.params.capacity, (v) => { plan.params.capacity = v; touched(); }),
       slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; pressChanged(); }, (v) => v.toFixed(1)),
       slider('band leak', 0, 1, 0.02, () => plan.params.pressFloor, (v) => { plan.params.pressFloor = v; pressChanged(); }),
-      el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye.'),
+      slider('sideways wick', 0, 1, 0.05, () => plan.params.lateral, (v) => { plan.params.lateral = v; replay(); touched(); }),
+      el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye. Sideways wick = how much of a squirt spreads within a layer versus into the next.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'View'),
+      checkbox('3D bundle view', () => view.three, (v) => { view.three = v; dirty = true; }),
+      row(el('label', {}, 'style'), styleSel, btn('Reset view', () => { view3d?.frame(); dirty = true; }), toolButtons.orbit),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; }),
-      checkbox('View & paint underside', () => view.flip, (v) => { view.flip = v; dirty = true; }),
+      checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
       checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
       checkbox('Shade by layer count', () => view.shadeLayers, (v) => { view.shadeLayers = v; dirty = true; }),
       checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; }),
@@ -416,7 +447,7 @@ function loadPlanFile(): void {
 function addStroke(s: Stroke): void {
   plan.strokes.push(s);
   gpu?.download();
-  sim.applyStroke(s, plan.params);
+  sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();
   dirty = true;
   touched();
@@ -436,11 +467,66 @@ function stampAt(p: Vec2): void {
   }
 }
 
+/** 3D hit under a pointer event on the folded overlay: texel index and position */
+function hit3d(ev: PointerEvent | MouseEvent): { id: number; p: Vec3; d: Vec3; x: number; y: number } | null {
+  if (!view3d) return null;
+  const r = foldedCanvas.getBoundingClientRect();
+  const x = (ev.clientX - r.left) * renderer.dpr, y = (ev.clientY - r.top) * renderer.dpr;
+  const id = view3d.pick(x, y);
+  if (id < 0) return null;
+  return { id, p: view3d.position(id), d: view3d.rayDir(x, y), x, y };
+}
+
+function stampAt3d(ev: PointerEvent): void {
+  const h = hit3d(ev);
+  if (!h) return;
+  if (tool === 'dye') {
+    addStroke({ kind: 'brush3', p: h.p, d: h.d, r: brush.r, dye: brush.dye, amount: brush.amount, pen: brush.pen });
+  }
+}
+
+let bandStart: { p: Vec3; d: Vec3 } | null = null;
+let bandEnd: Vec3 | null = null;
+/** camera gesture state */
+let gesture: { kind: 'orbit' | 'pan'; x: number; y: number } | null = null;
+const touches = new Map<number, { x: number; y: number }>();
+let pinchDist = 0;
+
 // ---------------------------------------------------------------------------
 // Mouse
 
 foldedCanvas.addEventListener('pointermove', (ev) => {
+  if (touches.has(ev.pointerId)) touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (touches.size >= 2 && view3d) {
+    // two-finger orbit + pinch zoom
+    const [a, b] = [...touches.values()];
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (gesture) { view3d.orbit(cx - gesture.x, cy - gesture.y); gesture.x = cx; gesture.y = cy; }
+    if (pinchDist > 0) view3d.zoom(pinchDist / d);
+    pinchDist = d;
+    dirty = true;
+    return;
+  }
+  if (gesture && view3d) {
+    if (gesture.kind === 'orbit') view3d.orbit(ev.clientX - gesture.x, ev.clientY - gesture.y);
+    else view3d.pan((ev.clientX - gesture.x) * renderer.dpr, (ev.clientY - gesture.y) * renderer.dpr);
+    gesture.x = ev.clientX; gesture.y = ev.clientY;
+    dirty = true;
+    return;
+  }
   hoverFolded = renderer.foldedToCm(ev);
+  if (is3d()) {
+    hover3d = ev;
+    if (dragging && tool === 'dye') {
+      const h = hit3d(ev);
+      if (h && (!lastStamp3 || len3(sub3(lastStamp3, h.p)) >= brush.r * 0.35)) { stampAt3d(ev); lastStamp3 = h.p; }
+    } else if (dragging && tool === 'band') {
+      const h = hit3d(ev);
+      if (h) bandEnd = h.p;
+      dirty = true;
+    }
+    return;
+  }
   if (dragging && (tool === 'dye' || tool === 'band')) {
     if (!lastStamp || dist(lastStamp, hoverFolded) >= brush.r * 0.35) {
       stampAt(hoverFolded);
@@ -448,23 +534,50 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
     }
   }
 });
-foldedCanvas.addEventListener('pointerleave', () => { hoverFolded = null; });
+let hover3d: PointerEvent | null = null;
+let lastStamp3: Vec3 | null = null;
+foldedCanvas.addEventListener('pointerleave', () => { hoverFolded = null; hover3d = null; });
+foldedCanvas.addEventListener('wheel', (ev) => {
+  if (!is3d() || !view3d) return;
+  ev.preventDefault();
+  view3d.zoom(Math.exp(ev.deltaY * 0.0015));
+  dirty = true;
+}, { passive: false });
 for (const c of [flatCanvas, foldedCanvas]) {
   c.draggable = false;
   c.addEventListener('dragstart', (ev) => ev.preventDefault());
   c.addEventListener('contextmenu', (ev) => ev.preventDefault());
 }
 foldedCanvas.addEventListener('pointerdown', (ev) => {
-  if (ev.button !== 0) return;
   ev.preventDefault();
   foldedCanvas.setPointerCapture(ev.pointerId);
+  if (ev.pointerType === 'touch') {
+    touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (touches.size === 2 && view3d && is3d()) {
+      const [a, b] = [...touches.values()];
+      gesture = { kind: 'orbit', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      dragging = false; lastStamp = null; lastStamp3 = null; bandStart = null; bandEnd = null;
+      return;
+    }
+  }
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+    gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
+    return;
+  }
+  if (ev.button !== 0) return;
   hoverFolded = renderer.foldedToCm(ev);
   const p = renderer.foldedToCm(ev);
+  if (is3d()) {
+    if (tool === 'dye') { dragging = true; const h = hit3d(ev); lastStamp3 = h ? h.p : null; stampAt3d(ev); }
+    else if (tool === 'band') { dragging = true; const h = hit3d(ev); bandStart = h ? { p: h.p, d: h.d } : null; bandEnd = null; }
+    return;
+  }
   if (tool === 'dye' || tool === 'band') {
     dragging = true;
     lastStamp = p;
     stampAt(p);
-  } else if (tool === 'fold' && plan.mode === 'fold') {
+  } else if (tool === 'fold' && plan.mode === 'fold' && !is3d()) {
     if (foldDraft.length < 2) {
       foldDraft.push(p);
     } else {
@@ -477,10 +590,25 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     }
   }
 });
-window.addEventListener('pointerup', () => {
+window.addEventListener('pointerup', (ev) => {
+  touches.delete(ev.pointerId);
+  if (touches.size < 2) pinchDist = 0;
+  if (gesture) { gesture = null; return; }
   if (dragging) {
     dragging = false;
     lastStamp = null;
+    lastStamp3 = null;
+    if (bandStart && bandEnd) {
+      // rubber band: a slab through the two hit points, containing the view direction
+      const along = sub3(bandEnd, bandStart.p);
+      if (len3(along) > 0.3) {
+        const n = norm3(cross3(along, bandStart.d));
+        const mid: Vec3 = [(bandStart.p[0] + bandEnd[0]) / 2, (bandStart.p[1] + bandEnd[1]) / 2, (bandStart.p[2] + bandEnd[2]) / 2];
+        plan.bands.push({ kind: 'slab', p: mid, n, w: brush.r });
+        bandsDirty = true;
+      }
+    }
+    bandStart = null; bandEnd = null;
     if (bandsDirty) {
       bandsDirty = false;
       pressChanged();
@@ -531,13 +659,52 @@ function frame(): void {
     // auto-pause once the batch is done: almost no free dye left to move
     if (frameCount % 45 === 0 && batchDone()) setPlaying(false);
   }
-  const hoverKey = `${hoverFlat?.x},${hoverFlat?.y},${hoverFolded?.x},${hoverFolded?.y},${foldDraft.length}`;
+  const hoverKey = `${hoverFlat?.x},${hoverFlat?.y},${hoverFolded?.x},${hoverFolded?.y},${foldDraft.length},${hover3d?.clientX},${hover3d?.clientY}`;
   if (hoverKey !== lastHoverKey) { lastHoverKey = hoverKey; dirty = true; }
   const c1 = flatCanvas, c2 = foldedCanvas;
   if (c1.width !== Math.floor(c1.clientWidth * renderer.dpr) || c2.width !== Math.floor(c2.clientWidth * renderer.dpr)
     || c1.height !== Math.floor(c1.clientHeight * renderer.dpr) || c2.height !== Math.floor(c2.clientHeight * renderer.dpr)) dirty = true;
   if (dirty) { dirty = false; renderOnce(); }
   requestAnimationFrame(frame);
+}
+
+/** markers, brush cursor and band drag on the transparent canvas above the 3D view */
+function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
+  const c = foldedCanvas;
+  Renderer.fit(c, renderer.dpr);
+  const ctx = c.getContext('2d')!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.width, c.height);
+  if (!view3d || !bundle) return;
+  const dpr = renderer.dpr;
+  // flat hover -> where it sits in the bundle
+  if (hoverFlat && hoverFlat.x >= 0 && hoverFlat.y >= 0 && hoverFlat.x < sim.W && hoverFlat.y < sim.H) {
+    const i = sim.texelAt(hoverFlat);
+    const q = view3d.project([bundle.px[i], bundle.py[i], bundle.pz[i]]);
+    if (q) {
+      ctx.beginPath(); ctx.arc(q.x, q.y, 6 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,60,0,0.9)'; ctx.fill();
+      ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+  }
+  if (hit && (tool === 'dye' || tool === 'band' || tool === 'inspect')) {
+    const q = view3d.project(hit.p);
+    if (q) {
+      const rpx = brush.r * view3d.pixelsPerCm(q.depth);
+      ctx.beginPath(); ctx.arc(q.x, q.y, tool === 'inspect' ? 5 * dpr : rpx, 0, Math.PI * 2);
+      ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : tool === 'band' ? '#222' : '#ff7a1a';
+      ctx.lineWidth = 2 * dpr; ctx.stroke();
+    }
+  }
+  if (bandStart && bandEnd) {
+    const a = view3d.project(bandStart.p), b = view3d.project(bandEnd);
+    if (a && b) {
+      ctx.strokeStyle = 'rgba(30,30,30,0.85)';
+      ctx.lineWidth = Math.max(2, brush.r * view3d.pixelsPerCm(a.depth));
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  }
 }
 
 function batchDone(): boolean {
@@ -600,6 +767,21 @@ function renderOnce(): void {
     for (const i of col) flatMarkers.push(sim.texelCenter(i));
     if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
   }
+  let hit: ReturnType<typeof hit3d> = null;
+  if (is3d() && bundle) {
+    flatMarkers.length = 0;
+    if (hover3d) {
+      hit = hit3d(hover3d);
+      if (hit) {
+        flatMarkers.push(sim.texelCenter(hit.id));
+        hoverInfo = `bundle (${hit.p[0].toFixed(1)}, ${hit.p[1].toFixed(1)}, ${hit.p[2].toFixed(1)}) → flat (${sim.texelCenter(hit.id).x.toFixed(1)}, ${sim.texelCenter(hit.id).y.toFixed(1)})${bundle.exposed[hit.id] ? '' : ' (interior)'}`;
+      }
+    }
+    if (hoverFlat && hoverFlat.x >= 0 && hoverFlat.y >= 0 && hoverFlat.x < sim.W && hoverFlat.y < sim.H) {
+      const i = sim.texelAt(hoverFlat);
+      if (bundle.valid[i]) hoverInfo = `flat (${hoverFlat.x.toFixed(1)}, ${hoverFlat.y.toFixed(1)}) → bundle (${bundle.px[i].toFixed(1)}, ${bundle.py[i].toFixed(1)}, ${bundle.pz[i].toFixed(1)})${bundle.exposed[i] ? ', exposed' : ', buried'}`;
+    }
+  }
 
   renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
   if (plan.mode === 'twist' && tool === 'centre') {
@@ -637,7 +819,14 @@ function renderOnce(): void {
       }
     }
   };
-  if (plan.mode === 'twist') {
+  stackEl.classList.toggle('three', is3d());
+  folded3dCanvas.hidden = !is3d();
+  if (is3d() && view3d) {
+    Renderer.fit(folded3dCanvas, renderer.dpr);
+    view3d.setTexture(renderer.src);
+    view3d.draw();
+    draw3dOverlay(hit);
+  } else if (plan.mode === 'twist') {
     const cloth = liveCloth ?? (isCloth(bundle) ? bundle.cloth : null);
     if (cloth) renderer.drawCloth(cloth, liveCloth ? null : renderer.textureColors(sim.N, sim.M), plan.bands, view, foldedMarkers, overlay);
   } else {
@@ -660,6 +849,9 @@ function renderOnce(): void {
   download: () => gpu?.download(),
   render: () => { dirty = true; renderOnce(); },
   get bundle() { return bundle; },
+  get view3d() { return view3d; },
+  hit3d,
+  pressChanged,
   rebuild: rebuildGeometry,
   addFolds,
   addStroke,

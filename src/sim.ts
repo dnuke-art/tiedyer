@@ -90,11 +90,16 @@ export class Sim {
     if (bands.length === 0) { this.press.fill(1); return; }
     const c = Math.max(1e-6, params.pressRadius);
     const floor = params.pressFloor;
-    const { px, py } = this.bundle;
+    const { px, py, pz } = this.bundle;
     for (let i = 0; i < n; i++) {
       let dmin = Infinity;
       for (const b of bands) {
-        const d = Math.hypot(px[i] - b.p.x, py[i] - b.p.y) - b.r;
+        let d: number;
+        if (b.kind === 'slab') {
+          d = Math.abs((px[i] - b.p[0]) * b.n[0] + (py[i] - b.p[1]) * b.n[1] + (pz[i] - b.p[2]) * b.n[2]) - b.w / 2;
+        } else {
+          d = Math.hypot(px[i] - b.p.x, py[i] - b.p.y) - b.r;
+        }
         if (d < dmin) dmin = d;
       }
       const P = Math.min(1, Math.max(0, dmin) / c);
@@ -115,32 +120,65 @@ export class Sim {
    * surface, by contact weight. Liquid arriving at an already-wet texel mixes in.
    * `volumeAt(i)` gives the liquid volume (in layer-fills) poured on entry texel i.
    */
-  private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number): void {
+  private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number, params: SimParams): void {
     const b = this.bundle, n = b.n;
     const surface = fromTop ? b.surfaceTop : b.surfaceBot;
-    const vol = this.vol, depth = this.depth, order = this.order;
-    vol.fill(0);
-    depth.fill(-1);
-    let head = 0, tail = 0;
+    const ids: number[] = [], vols: number[] = [];
     for (let i = 0; i < n; i++) {
       if (!b.valid[i] || !surface[i]) continue;
       const v = volumeAt(i);
-      if (v <= 0) continue;
-      vol[i] = v;
-      depth[i] = 0;
-      order[tail++] = i;
+      if (v > 0) { ids.push(i); vols.push(v); }
     }
-    // BFS assigns each reachable texel its hop distance from the poured surface
-    while (head < tail) {
-      const i = order[head++];
-      const d = depth[i] + 1;
+    this.wickFrom(ids, vols, conc, f, params);
+  }
+
+  /**
+   * Layered flow from an explicit entry set. Neighbours are the bundle's layer
+   * contacts (weight as given) and the four in-plane texel neighbours (weight
+   * params.lateral), so liquid poured on an edge wicks inward as well as across.
+   */
+  wickFrom(ids: ArrayLike<number>, vols: ArrayLike<number>, conc: number, f: Float32Array, params: SimParams): void {
+    const b = this.bundle, N = this.N, M = this.M;
+    const vol = this.vol, depth = this.depth, order = this.order;
+    const lat = params.lateral;
+    vol.fill(0);
+    depth.fill(-1);
+    let head = 0, tail = 0;
+    for (let k = 0; k < ids.length; k++) {
+      const i = ids[k];
+      if (!b.valid[i] || vols[k] <= 0) continue;
+      vol[i] += vols[k];
+      if (depth[i] < 0) { depth[i] = 0; order[tail++] = i; }
+    }
+    // neighbour iteration shared by BFS and flow: layer contacts then grid neighbours
+    const nb = new Int32Array(K + 4), nw = new Float32Array(K + 4);
+    const neighbours = (i: number): number => {
+      let c = 0;
       for (let k = 0; k < K; k++) {
         const j = b.contacts[i * K + k];
         if (j < 0) break;
+        nb[c] = j; nw[c] = b.weights[i * K + k]; c++;
+      }
+      if (lat > 0) {
+        const x = i % N, y = (i - x) / N;
+        if (x > 0 && b.valid[i - 1]) { nb[c] = i - 1; nw[c] = lat; c++; }
+        if (x < N - 1 && b.valid[i + 1]) { nb[c] = i + 1; nw[c] = lat; c++; }
+        if (y > 0 && b.valid[i - N]) { nb[c] = i - N; nw[c] = lat; c++; }
+        if (y < M - 1 && b.valid[i + N]) { nb[c] = i + N; nw[c] = lat; c++; }
+      }
+      return c;
+    };
+    // BFS assigns each reachable texel its hop distance from the entry set
+    while (head < tail) {
+      const i = order[head++];
+      const d = depth[i] + 1;
+      const c = neighbours(i);
+      for (let k = 0; k < c; k++) {
+        const j = nb[k];
         if (depth[j] < 0) { depth[j] = d; order[tail++] = j; }
       }
     }
-    // flow in BFS order: absorb, pass the excess one hop deeper
+    // flow in BFS order: absorb, pass the excess one hop deeper by weight
     for (let q = 0; q < tail; q++) {
       const i = order[q];
       const v = vol[i];
@@ -151,29 +189,35 @@ export class Sim {
       f[i] += a * conc;
       const excess = v - a;
       if (excess <= 0) continue;
-      let wsum = 0;
       const d = depth[i] + 1;
-      for (let k = 0; k < K; k++) {
-        const j = b.contacts[i * K + k];
-        if (j < 0) break;
-        if (depth[j] === d) wsum += b.weights[i * K + k];
-      }
+      const c = neighbours(i);
+      let wsum = 0;
+      for (let k = 0; k < c; k++) if (depth[nb[k]] === d) wsum += nw[k];
       if (wsum <= 0) continue;
-      for (let k = 0; k < K; k++) {
-        const j = b.contacts[i * K + k];
-        if (j < 0) break;
-        if (depth[j] === d) vol[j] += excess * b.weights[i * K + k] / wsum;
-      }
+      for (let k = 0; k < c; k++) if (depth[nb[k]] === d) vol[nb[k]] += excess * nw[k] / wsum;
     }
   }
 
-  applyStroke(s: Stroke, _params: SimParams): void {
+  /**
+   * Apply a stroke. 3D strokes need a visibility oracle (`footprint`) that returns the
+   * texels visible looking along s.d at s.p within 2r, with their distances.
+   */
+  applyStroke(s: Stroke, params: SimParams, footprint?: (p: [number, number, number], d: [number, number, number], radius: number) => { ids: Int32Array; dist: Float32Array }): void {
     if (s.dye < 0 || s.dye >= this.nDyes) return;
     const f = this.f[s.dye];
     const volume = Math.max(0, s.pen);
     if (s.kind === 'dip') {
-      this.wickPass(true, s.amount, f, () => volume);
-      this.wickPass(false, s.amount, f, () => volume);
+      this.wickPass(true, s.amount, f, () => volume, params);
+      this.wickPass(false, s.amount, f, () => volume, params);
+      return;
+    }
+    if (s.kind === 'brush3') {
+      if (!footprint) return;
+      const fp = footprint(s.p, s.d, 2 * s.r);
+      const vols = new Float32Array(fp.ids.length);
+      const r2 = s.r * s.r;
+      for (let k = 0; k < fp.ids.length; k++) vols[k] = volume * Math.exp(-2 * fp.dist[k] * fp.dist[k] / r2);
+      this.wickFrom(fp.ids, vols, s.amount, f, params);
       return;
     }
     // Gaussian footprint: full volume at the nozzle, 1/e^2 at the brush radius, and a
@@ -186,7 +230,7 @@ export class Sim {
       const d2 = dx * dx + dy * dy;
       return d2 > cut ? 0 : volume * Math.exp(-2 * d2 / r2);
     };
-    this.wickPass(s.side === 'top', s.amount, f, volumeAt);
+    this.wickPass(s.side === 'top', s.amount, f, volumeAt, params);
   }
 
   /** One explicit Euler step (CPU reference; the GPU path does the same). */

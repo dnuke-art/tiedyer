@@ -13,7 +13,6 @@ the engine underneath actually is, and where that could go.
   actually squeezes the disc rather than just painting a press field.
 - Folds inside the cloth solver (freeze, rotate, activate), so fold-then-twist and
   twist-then-fold plans are possible.
-- True 3D bundle view: orbit, bands anywhere, dye from any direction (see below).
 - Pole wrap (arashi): wrap the cloth around a cylinder, compress along the axis.
 - Straight-line bands and shaped clamps as first-class bindings.
 - Per-dye chemistry: reactive versus acid, viscosity, ice-dye splitting into components.
@@ -22,11 +21,12 @@ the engine underneath actually is, and where that could go.
 - Garment shapes instead of rectangles; render the result on a shirt.
 - Share a plan by URL.
 
-## True 3D bundle view (spiral first)
+## True 3D bundle view (built 2026-09-10)
 
 Goal: orbit the bundle, put bands anywhere, and dye from any side or direction, not just
-straight down or straight up. Sized below; the short version is that the sim barely
-changes and the work is a renderer plus 3D picking, three to four focused days.
+straight down or straight up. Built as sized below in one session; the sim barely
+changed. Left for later: a splat mode with sorted blending, clamps as paired slabs,
+pen pressure, and a 3D view of the twist while it runs at full frame rate.
 
 **Why it is cheap on the sim side.** The solver already sees only a Bundle: positions,
 weighted contacts, surface flags. Wicking is a layered flow from an *entry set* of texels

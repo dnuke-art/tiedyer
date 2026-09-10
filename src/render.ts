@@ -82,7 +82,7 @@ export class Renderer {
   offCtx: CanvasRenderingContext2D;
   img: ImageData | null = null;
   /** image drawn into both views; the CPU path uses `off`, the GPU path swaps in its canvas */
-  src: CanvasImageSource;
+  src: HTMLCanvasElement;
   flatView: Mat = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   foldedView: Mat = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   dpr = 1;
@@ -206,6 +206,7 @@ export class Renderer {
     // bindings
     const s = Math.hypot(V.a, V.b);
     for (const b of bands) {
+      if (b.kind === 'slab') continue; // 3D bands are drawn by the 3D view
       const q = apply(V, b.p);
       ctx.beginPath();
       ctx.arc(q.x, q.y, b.r * s, 0, Math.PI * 2);
@@ -298,6 +299,7 @@ export class Renderer {
       ctx.fill();
     }
     for (const b of bands) {
+      if (b.kind === 'slab') continue; // 3D bands are drawn by the 3D view
       const q = apply(V, b.p);
       ctx.beginPath();
       ctx.arc(q.x, q.y, b.r * s, 0, Math.PI * 2);

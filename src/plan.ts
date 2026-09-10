@@ -14,10 +14,16 @@ export type Side = 'top' | 'bottom';
 export type Stroke =
   /** amount = dye concentration in the liquid; pen = liquid volume in layer-fills (soak) */
   | { kind: 'brush'; p: Vec2; r: number; dye: number; amount: number; side: Side; pen: number }
+  /** 3D squirt: hit point p, spray direction d (unit), replayed via a visibility render */
+  | { kind: 'brush3'; p: [number, number, number]; d: [number, number, number]; r: number; dye: number; amount: number; pen: number }
   | { kind: 'dip'; dye: number; amount: number; pen: number };
 
-/** A disc of binding (rubber band / clamp) in folded coordinates. */
-export interface BandStamp { p: Vec2; r: number }
+/** A binding: a disc through all layers in bundle xy (2D views), or a slab in 3D
+ *  (a rubber band around the bundle: everything within w/2 of the plane through p
+ *  with normal n is squeezed). */
+export type BandStamp =
+  | { kind?: 'disc'; p: Vec2; r: number }
+  | { kind: 'slab'; p: [number, number, number]; n: [number, number, number]; w: number };
 
 export interface SimParams {
   /** in-plane diffusion coefficient (per step, cell units) */
@@ -32,6 +38,8 @@ export interface SimParams {
   pressRadius: number;
   /** minimum press factor under a binding (0 = perfect resist) */
   pressFloor: number;
+  /** in-plane share of wicking flow relative to layer contacts (0 = none) */
+  lateral: number;
 }
 
 export type Mode = 'fold' | 'twist';
@@ -64,6 +72,7 @@ export const DEFAULT_PARAMS: SimParams = {
   capacity: 1.0,
   pressRadius: 1.5,
   pressFloor: 0.0,
+  lateral: 0.35,
 };
 
 export function defaultPlan(): Plan {

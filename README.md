@@ -73,13 +73,26 @@ and a ceiling pats the bundle flat. Particle positions, contacts with other laye
 reach, and exposure (voxel flood fill of the rasterized sheet) become a Bundle for the same
 dye solver. The run happens in a Web Worker with live progress.
 
+**3D view.** Both bundles are drawn by one WebGL2 renderer (`src/view3d.ts`): the texel
+grid as a lit textured mesh (two triangles per quad, UV = flat coordinates, quads that
+straddle a fold dropped) or as oriented Gaussian surfel splats, with an orbit camera.
+Picking is an ID buffer. A 3D squirt is stored as a hit point and a spray direction; its
+entry set is found by rendering texel IDs from a small orthographic camera looking along
+that direction, so it is camera independent and replays after the geometry changes. From
+the entry set, wicking is a layered flow over the contact graph plus in-plane neighbours
+("sideways wick"), so dye poured on the edge of a stack wicks inward. Bands in 3D are
+slabs: drag a line across the bundle and everything within the band's width of the plane
+through that line is squeezed. Flat-fold bundles get real height (layer index times
+thickness) and voxel exposure, so the edges of a folded stack are dyeable.
+
 ## Files
 
 - `src/geom.ts` – vectors, affine matrices, polygon clipping
 - `src/fold.ts` – faces, `applyFold`, presets (accordion, zigzag triangles, diagonal)
 - `src/sim.ts` – texture + layer-contact graph, press field, strokes, explicit Euler step (CPU reference)
 - `src/gpu.ts` – WebGL2 solver and colour mapping (same step as a fragment shader)
-- `src/render.ts` – canvas rendering of both views, picking helpers
+- `src/render.ts` – 2D canvas rendering of both views, picking helpers
+- `src/view3d.ts` – WebGL2 3D bundle view: mesh, splats, orbit camera, ID picking, footprints
 - `src/bundle.ts` – the Bundle contract (positions, weighted contacts, surface flags); flat-fold producer
 - `src/cloth.ts` – particle cloth, twist operation, bundle extraction
 - `src/twist.worker.ts` – runs the twist off the main thread

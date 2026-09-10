@@ -11,7 +11,7 @@
 // voxel flood-fill of the air around the bundle.
 
 import { Vec2, BBox } from './geom';
-import { Bundle, K, GridDims } from './bundle';
+import { Bundle, K, GridDims, voxelExposure } from './bundle';
 
 export interface TwistParams {
   /** pinch centre in cloth coordinates (cm) */
@@ -242,6 +242,7 @@ export class Cloth implements ClothView {
       weights: new Float32Array(n * K),
       surfaceTop: new Uint8Array(n),
       surfaceBot: new Uint8Array(n),
+      exposed: new Uint8Array(n),
     };
     // contacts: particles of other layers within reach
     const reach = 1.8 * this.dc;
@@ -267,56 +268,9 @@ export class Cloth implements ClothView {
       }
     }
     this.cellSize = this.dc;
-    // exposure: voxelize the sheet (sampling each quad densely so air cannot leak
-    // through it), flood exterior air, then look above / below each particle
-    const v = 0.5 * this.h;
-    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < n; i++) {
-      minX = Math.min(minX, this.x[i]); maxX = Math.max(maxX, this.x[i]);
-      minY = Math.min(minY, this.y[i]); maxY = Math.max(maxY, this.y[i]);
-      minZ = Math.min(minZ, this.z[i]); maxZ = Math.max(maxZ, this.z[i]);
-    }
-    const ox = minX - 2 * v, oy = minY - 2 * v, oz = minZ - 2 * v;
-    const gx = Math.ceil((maxX - ox) / v) + 3, gy = Math.ceil((maxY - oy) / v) + 3, gz = Math.ceil((maxZ - oz) / v) + 3;
-    const occ = new Uint8Array(gx * gy * gz); // 0 unknown air, 1 cloth, 2 exterior air
-    const vi = (cx: number, cy: number, cz: number) => (cz * gy + cy) * gx + cx;
-    const cellOf = (i: number): [number, number, number] => [Math.floor((this.x[i] - ox) / v), Math.floor((this.y[i] - oy) / v), Math.floor((this.z[i] - oz) / v)];
-    const mark = (x: number, y: number, z: number) => {
-      const cx = Math.floor((x - ox) / v), cy = Math.floor((y - oy) / v), cz = Math.floor((z - oz) / v);
-      if (cx >= 0 && cy >= 0 && cz >= 0 && cx < gx && cy < gy && cz < gz) occ[vi(cx, cy, cz)] = 1;
-    };
-    const SUB = 4;
-    for (let j = 0; j < this.M - 1; j++) for (let i = 0; i < this.N - 1; i++) {
-      const a = j * this.N + i, bq = a + 1, c = a + this.N, dq = c + 1;
-      for (let u = 0; u <= SUB; u++) for (let t = 0; t <= SUB; t++) {
-        const fu = u / SUB, ft = t / SUB;
-        const w00 = (1 - fu) * (1 - ft), w10 = fu * (1 - ft), w01 = (1 - fu) * ft, w11 = fu * ft;
-        mark(
-          this.x[a] * w00 + this.x[bq] * w10 + this.x[c] * w01 + this.x[dq] * w11,
-          this.y[a] * w00 + this.y[bq] * w10 + this.y[c] * w01 + this.y[dq] * w11,
-          this.z[a] * w00 + this.z[bq] * w10 + this.z[c] * w01 + this.z[dq] * w11,
-        );
-      }
-    }
-    // flood from the corner
-    const stack: number[] = [vi(0, 0, 0)];
-    occ[stack[0]] = 2;
-    while (stack.length) {
-      const c = stack.pop()!;
-      const cx = c % gx, cy = Math.floor(c / gx) % gy, cz = Math.floor(c / (gx * gy));
-      const nb = [[cx - 1, cy, cz], [cx + 1, cy, cz], [cx, cy - 1, cz], [cx, cy + 1, cz], [cx, cy, cz - 1], [cx, cy, cz + 1]];
-      for (const [ax, ay, az] of nb) {
-        if (ax < 0 || ay < 0 || az < 0 || ax >= gx || ay >= gy || az >= gz) continue;
-        const k = vi(ax, ay, az);
-        if (occ[k] === 0) { occ[k] = 2; stack.push(k); }
-      }
-    }
-    const airAt = (cx: number, cy: number, cz: number) => cz < 0 || cz >= gz || occ[vi(cx, cy, cz)] === 2;
-    for (let i = 0; i < n; i++) {
-      const [cx, cy, cz] = cellOf(i);
-      b.surfaceTop[i] = airAt(cx, cy, cz + 1) ? 1 : 0;
-      b.surfaceBot[i] = airAt(cx, cy, cz - 1) ? 1 : 0;
-    }
+    // exposure: shared voxel flood fill (voxel = half the particle spacing; the quads
+    // are sampled densely enough that air cannot leak through the sheet)
+    voxelExposure(b, 0.5 * this.h, 4);
     return makeClothBundle({ N: this.N, M: this.M, n, h: this.h, x: this.x.slice(), y: this.y.slice(), z: this.z.slice() }, b);
   }
 }
