@@ -37,6 +37,15 @@ dh/dt = adsorption          (h = fixed dye, survives rinsing; f = free dye)
 
 Adsorption is Langmuir-style: rate ∝ free dye × remaining capacity. "Rinse" shows only `h`.
 
+**Squirting is wicking, not diffusion.** A brush stroke pours a liquid volume (the "soak"
+value, in layer-fills) onto the surface. Each layer holds one fill's worth of liquid,
+less where it is squeezed by a binding, and the excess passes to the next layer: a
+saturation front. Every texel works out its own reach from the pre-stroke capacity of
+the layers between it and the surface at its own bundle position, so mirrored layers
+whose texel grids are offset by half a texel still get a smooth front. A fully pressed
+layer stops the front. Diffusion then only smooths what wicking put in place, which is
+also the order things happen in a real bundle.
+
 **Solver.** The step runs as a WebGL2 fragment shader (`src/gpu.ts`): `f` and `h` are
 RGBA32F textures (one channel per dye), the layer links and press field are two static
 textures, and two framebuffers ping-pong with multiple render targets. Colour mapping is a

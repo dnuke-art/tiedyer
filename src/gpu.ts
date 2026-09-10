@@ -7,7 +7,7 @@
 // The CPU arrays in Sim stay the source of truth for strokes and replays: upload()
 // after they change, download() before a stroke is applied on top of GPU state.
 
-import { Sim } from './sim';
+import { Sim, stableDt } from './sim';
 import { SimParams, DyeDef } from './plan';
 import { ViewOpts } from './render';
 
@@ -252,7 +252,7 @@ export class GpuSolver {
     gl.uniform1f(this.stepU.uDZ, params.dZ);
     gl.uniform1f(this.stepU.uRate, params.adsorb);
     gl.uniform1f(this.stepU.uCap, params.capacity);
-    gl.uniform1f(this.stepU.uDt, 0.5);
+    gl.uniform1f(this.stepU.uDt, stableDt(params));
     this.bindTex(2, this.texLinks, this.stepU.uLinks);
     this.bindTex(3, this.texPress, this.stepU.uPress);
     for (let s = 0; s < n; s++) {

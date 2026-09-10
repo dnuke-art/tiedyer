@@ -41,10 +41,13 @@ const view: ViewOpts = { fixedOnly: false, strength: 1.2, showCreases: true, sha
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold';
 let tool: Tool = 'dye';
-const brush = { r: 3, amount: 0.8, pen: 1.5, dye: 0 };
+const brush = { r: 3, amount: 0.8, pen: 10, dye: 0 };
 let playing = false;
 const budgetMs = 8;
 let stepsPerFrame = 20;
+/** set whenever something on screen changed; the frame loop only redraws then */
+let dirty = true;
+let lastHoverKey = '';
 
 let foldDraft: Vec2[] = [];
 let hoverFolded: Vec2 | null = null;
@@ -65,6 +68,7 @@ function replay(): void {
   sim.resetDye();
   for (const s of plan.strokes) sim.applyStroke(s, plan.params);
   gpu?.upload();
+  dirty = true;
 }
 
 function pressChanged(): void {
@@ -77,6 +81,7 @@ function pressChanged(): void {
 function doSteps(n: number): void {
   if (gpu) gpu.step(plan.params, n);
   else for (let i = 0; i < n; i++) sim.step(plan.params);
+  dirty = true;
 }
 
 function rebuildGeometry(): void {
@@ -131,6 +136,16 @@ function slider(label: string, min: number, max: number, step: number, get: () =
   return row(el('label', {}, label), input, val);
 }
 
+/** Slider whose position is logarithmic in the value. */
+function logSlider(label: string, min: number, max: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(1)): HTMLElement {
+  const lo = Math.log(min), hi = Math.log(max);
+  const toPos = (v: number) => (Math.log(v) - lo) / (hi - lo);
+  const val = el('span', { class: 'val' }, fmt(get()));
+  const input = el('input', { type: 'range', min: 0, max: 1, step: 0.001, value: toPos(get()) }) as HTMLInputElement;
+  input.addEventListener('input', () => { const v = Math.exp(lo + parseFloat(input.value) * (hi - lo)); set(v); val.textContent = fmt(v); });
+  return row(el('label', {}, label), input, val);
+}
+
 function numberInput(get: () => number, set: (v: number) => void, attrs: Attrs = {}): HTMLInputElement {
   const input = el('input', { type: 'number', value: get(), ...attrs }) as HTMLInputElement;
   input.addEventListener('change', () => set(parseFloat(input.value)));
@@ -160,6 +175,7 @@ const HINTS: Record<Tool, string> = {
 function setTool(t: Tool): void {
   tool = t;
   foldDraft = [];
+  dirty = true;
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
   toolHint.textContent = HINTS[t];
 }
@@ -176,7 +192,7 @@ function refreshSwatches(): void {
   swatchWrap.replaceChildren(
     ...plan.dyes.map((d, k) => {
       const color = el('input', { type: 'color', value: d.color, title: d.name }) as HTMLInputElement;
-      color.addEventListener('input', () => { d.color = color.value; touched(); });
+      color.addEventListener('input', () => { d.color = color.value; dirty = true; touched(); });
       const sw = el('div', { class: 'swatch' + (k === brush.dye ? ' on' : ''), title: d.name }, color);
       sw.addEventListener('click', () => { brush.dye = k; refreshSwatches(); });
       return sw;
@@ -184,7 +200,7 @@ function refreshSwatches(): void {
   );
 }
 
-const playBtn = btn('▶ Play', () => { playing = !playing; playBtn.textContent = playing ? '❚❚ Pause' : '▶ Play'; playBtn.classList.toggle('on', playing); });
+const playBtn = btn('▶ Play', () => setPlaying(!playing));
 
 function buildSidebar(): void {
   const pleats = numberInput(() => 6, () => {}, { min: 2, max: 40, step: 1 }) as HTMLInputElement;
@@ -241,22 +257,22 @@ function buildSidebar(): void {
       el('summary', {}, 'Dye & bindings'),
       el('div', { class: 'row tools' }, toolButtons.inspect, toolButtons.dye, toolButtons.band),
       swatchWrap,
-      slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; }, (v) => v.toFixed(1)),
+      slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
-      slider('soak layers', 0.2, 12, 0.1, () => brush.pen, (v) => { brush.pen = v; }, (v) => v.toFixed(1)),
+      logSlider('soak layers', 0.5, 150, () => brush.pen, (v) => { brush.pen = v; }, (v) => v < 10 ? v.toFixed(1) : v.toFixed(0)),
       row(btn('Dip whole bundle', () => { addStroke({ kind: 'dip', dye: brush.dye, amount: brush.amount, pen: brush.pen }); }),
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
-      el('div', { class: 'note' }, 'Soak = how many layers the squirt penetrates (e-folding depth). Bands and clamps block dye and squeeze the layers.'),
+      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Bands and clamps squeeze layers so they hold less and stop the front.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
       row(playBtn, btn('Step ×20', () => doSteps(20)),
         btn('Rewind', () => { replay(); }), el('label', {}, 't'), stepCounter),
       slider('speed', 1, 200, 1, () => stepsPerFrame, (v) => { stepsPerFrame = v; }, (v) => `${v}/f`),
-      slider('spread', 0, 0.22, 0.005, () => plan.params.dPlane, (v) => { plan.params.dPlane = v; touched(); }, (v) => v.toFixed(3)),
-      slider('thru layers', 0, 0.3, 0.005, () => plan.params.dZ, (v) => { plan.params.dZ = v; touched(); }, (v) => v.toFixed(3)),
+      slider('spread', 0, 0.2, 0.005, () => plan.params.dPlane, (v) => { plan.params.dPlane = v; touched(); }, (v) => v.toFixed(3)),
+      slider('thru layers', 0, 0.55, 0.005, () => plan.params.dZ, (v) => { plan.params.dZ = v; touched(); }, (v) => v.toFixed(3)),
       slider('fixing rate', 0, 0.2, 0.002, () => plan.params.adsorb, (v) => { plan.params.adsorb = v; touched(); }, (v) => v.toFixed(3)),
       slider('capacity', 0.1, 3, 0.05, () => plan.params.capacity, (v) => { plan.params.capacity = v; touched(); }),
       slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; pressChanged(); }, (v) => v.toFixed(1)),
@@ -265,12 +281,12 @@ function buildSidebar(): void {
     ),
     el('details', { open: true },
       el('summary', {}, 'View'),
-      checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; }),
-      checkbox('View & paint underside', () => view.flip, (v) => { view.flip = v; }),
-      checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; }),
-      checkbox('Shade by layer count', () => view.shadeLayers, (v) => { view.shadeLayers = v; }),
-      checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; }),
-      slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; }, (v) => v.toFixed(1)),
+      checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; }),
+      checkbox('View & paint underside', () => view.flip, (v) => { view.flip = v; dirty = true; }),
+      checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
+      checkbox('Shade by layer count', () => view.shadeLayers, (v) => { view.shadeLayers = v; dirty = true; }),
+      checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; }),
+      slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; }, (v) => v.toFixed(1)),
     ),
     el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke'),
   );
@@ -310,6 +326,7 @@ function addStroke(s: Stroke): void {
   gpu?.download();
   sim.applyStroke(s, plan.params);
   gpu?.upload();
+  dirty = true;
   touched();
 }
 
@@ -323,6 +340,7 @@ function stampAt(p: Vec2): void {
   } else if (tool === 'band') {
     plan.bands.push({ p, r: brush.r });
     bandsDirty = true;
+    dirty = true;
   }
 }
 
@@ -339,8 +357,15 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
   }
 });
 foldedCanvas.addEventListener('pointerleave', () => { hoverFolded = null; });
+for (const c of [flatCanvas, foldedCanvas]) {
+  c.draggable = false;
+  c.addEventListener('dragstart', (ev) => ev.preventDefault());
+  c.addEventListener('contextmenu', (ev) => ev.preventDefault());
+}
 foldedCanvas.addEventListener('pointerdown', (ev) => {
   if (ev.button !== 0) return;
+  ev.preventDefault();
+  foldedCanvas.setPointerCapture(ev.pointerId);
   hoverFolded = renderer.foldedToCm(ev);
   const p = renderer.foldedToCm(ev);
   if (tool === 'dye' || tool === 'band') {
@@ -371,7 +396,7 @@ window.addEventListener('pointerup', () => {
   }
 });
 flatCanvas.addEventListener('pointermove', (ev) => { hoverFlat = renderer.flatToCm(ev); });
-flatCanvas.addEventListener('pointerdown', (ev) => { hoverFlat = renderer.flatToCm(ev); });
+flatCanvas.addEventListener('pointerdown', (ev) => { ev.preventDefault(); hoverFlat = renderer.flatToCm(ev); });
 flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
 
 // mobile controls drawer
@@ -381,7 +406,7 @@ document.getElementById('backdrop')!.addEventListener('click', () => appEl.class
 
 window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;
-  if (ev.key === 'Escape') foldDraft = [];
+  if (ev.key === 'Escape') { foldDraft = []; dirty = true; }
   if (ev.key === ' ') { ev.preventDefault(); playBtn.click(); }
   if (ev.key === 'z') { plan.strokes.pop(); replay(); touched(); }
 });
@@ -391,7 +416,9 @@ window.addEventListener('keydown', (ev) => {
 
 const statusEl = document.getElementById('status')!;
 
+let frameCount = 0;
 function frame(): void {
+  frameCount++;
   if (playing) {
     if (gpu) gpu.step(plan.params, stepsPerFrame);
     else {
@@ -399,9 +426,33 @@ function frame(): void {
       let n = 0;
       while (performance.now() - t0 < budgetMs && n < stepsPerFrame) { sim.step(plan.params); n++; }
     }
+    dirty = true;
+    // auto-pause once the batch is done: almost no free dye left to move
+    if (frameCount % 45 === 0 && batchDone()) setPlaying(false);
   }
-  renderOnce();
+  const hoverKey = `${hoverFlat?.x},${hoverFlat?.y},${hoverFolded?.x},${hoverFolded?.y},${foldDraft.length}`;
+  if (hoverKey !== lastHoverKey) { lastHoverKey = hoverKey; dirty = true; }
+  const c1 = flatCanvas, c2 = foldedCanvas;
+  if (c1.width !== Math.floor(c1.clientWidth * renderer.dpr) || c2.width !== Math.floor(c2.clientWidth * renderer.dpr)
+    || c1.height !== Math.floor(c1.clientHeight * renderer.dpr) || c2.height !== Math.floor(c2.clientHeight * renderer.dpr)) dirty = true;
+  if (dirty) { dirty = false; renderOnce(); }
   requestAnimationFrame(frame);
+}
+
+function batchDone(): boolean {
+  gpu?.download();
+  let free = 0, total = 0;
+  for (let k = 0; k < sim.nDyes; k++) {
+    const f = sim.f[k], h = sim.h[k];
+    for (let i = 0; i < f.length; i++) { free += f[i]; total += f[i] + h[i]; }
+  }
+  return total > 0 && free < 0.002 * total;
+}
+
+function setPlaying(on: boolean): void {
+  playing = on;
+  playBtn.textContent = playing ? '❚❚ Pause' : '▶ Play';
+  playBtn.classList.toggle('on', playing);
 }
 
 function renderOnce(): void {
@@ -477,7 +528,7 @@ function renderOnce(): void {
   step: (n: number) => { doSteps(n); renderOnce(); },
   get gpu() { return gpu; },
   download: () => gpu?.download(),
-  render: renderOnce,
+  render: () => { dirty = true; renderOnce(); },
   rebuild: rebuildGeometry,
   addFolds,
   addStroke,

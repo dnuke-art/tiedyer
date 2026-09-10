@@ -44,6 +44,8 @@ export class Sim {
   f: Float32Array[] = [];
   /** adsorbed (fixed) dye per species */
   h: Float32Array[] = [];
+  /** liquid fill fraction per texel, 0 = dry, up to press (a squeezed layer holds less) */
+  wet = new Float32Array(0);
   private tmp = new Float32Array(0);
   private hsum = new Float32Array(0);
 
@@ -72,6 +74,7 @@ export class Sim {
     this.press = new Float32Array(n).fill(1);
     this.tmp = new Float32Array(n);
     this.hsum = new Float32Array(n);
+    this.wet = new Float32Array(n);
     this.f = [];
     this.h = [];
     for (let k = 0; k < this.nDyes; k++) {
@@ -144,42 +147,77 @@ export class Sim {
 
   resetDye(): void {
     for (let k = 0; k < this.nDyes; k++) { this.f[k].fill(0); this.h[k].fill(0); }
+    this.wet.fill(0);
     this.t = 0;
   }
 
-  applyStroke(s: Stroke, params: SimParams): void {
+  /**
+   * Wicking. Liquid squirted on one surface fills the outermost layer's pores and the
+   * excess passes to the next layer, a saturation front. Each layer can hold `press`
+   * worth of liquid (a squeezed layer holds less; a fully pressed one stops the front).
+   *
+   * Every texel decides for itself how much liquid reaches it: the volume applied at
+   * its folded position minus what the layers between it and the surface can absorb,
+   * using their capacity BEFORE this stroke. Reading pre-stroke capacity (a smooth
+   * field) rather than the layers' post-stroke fill keeps the front smooth even though
+   * the texel grids of mirrored layers are offset by up to half a texel.
+   * `volumeAt(i)` returns the liquid volume (in layer-fills) applied above texel i.
+   */
+  private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number): void {
     const n = this.N * this.M;
+    const eps = this.cell * 1e-3;
+    const before = this.wet.slice();
+    for (let i = 0; i < n; i++) {
+      if (this.faceId[i] < 0) continue;
+      const vol = volumeAt(i);
+      if (vol <= 0) continue;
+      const pi = this.press[i];
+      if (pi <= 0.05) continue;
+      const p = { x: this.fx[i], y: this.fy[i] };
+      const col = facesAtFolded(this.index, p, eps); // top first
+      const pos = col.indexOf(this.faceId[i]);
+      if (pos < 0) continue;
+      let rem = vol, blocked = false;
+      const from = fromTop ? 0 : pos + 1;
+      const to = fromTop ? pos : col.length;
+      for (let c = from; c < to && rem > 0; c++) {
+        const t = this.texelAt(apply(this.index.Tinv[col[c]], p));
+        const pt = this.press[t];
+        if (pt <= 0.05) { blocked = true; break; }
+        rem -= Math.max(0, pt - before[t]);
+      }
+      if (blocked || rem <= 0) continue;
+      const take = Math.min(rem, Math.max(0, pi - before[i]));
+      if (take > 0) {
+        this.wet[i] = before[i] + take;
+        f[i] += take * conc;
+      }
+    }
+  }
+
+  applyStroke(s: Stroke, _params: SimParams): void {
     if (s.dye < 0 || s.dye >= this.nDyes) return;
     const f = this.f[s.dye];
-    const pen = Math.max(1e-3, s.pen);
-    const capMax = params.capacity * 3; // free dye can exceed fixing capacity (excess rinses out)
+    const volume = Math.max(0, s.pen);
     if (s.kind === 'dip') {
-      for (let i = 0; i < n; i++) {
-        if (this.faceId[i] < 0) continue;
-        const depth = Math.min(this.depthTop[i], this.depthBot[i]);
-        const amt = s.amount * Math.exp(-depth / pen) * this.press[i];
-        f[i] = Math.min(capMax, f[i] + amt);
-      }
+      this.wickPass(true, s.amount, f, () => volume);
+      this.wickPass(false, s.amount, f, () => volume);
       return;
     }
     const r2 = s.r * s.r;
-    for (let i = 0; i < n; i++) {
-      if (this.faceId[i] < 0) continue;
+    const volumeAt = (i: number): number => {
       const dx = this.fx[i] - s.p.x, dy = this.fy[i] - s.p.y;
       const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
-      const depth = s.side === 'top' ? this.depthTop[i] : this.depthBot[i];
-      const soft = 1 - d2 / r2;
-      const amt = s.amount * soft * Math.exp(-depth / pen) * this.press[i];
-      f[i] = Math.min(capMax, f[i] + amt);
-    }
+      return d2 > r2 ? 0 : volume * (1 - d2 / r2);
+    };
+    this.wickPass(s.side === 'top', s.amount, f, volumeAt);
   }
 
   /** One explicit Euler step. */
   step(params: SimParams): void {
     const N = this.N, M = this.M, n = N * M;
-    const dt = 0.5;
     const dP = params.dPlane, dZ = params.dZ;
+    const dt = stableDt(params);
     const up = this.up, down = this.down, press = this.press, faceId = this.faceId;
     const hsum = this.hsum;
     hsum.fill(0);
@@ -236,4 +274,9 @@ export class Sim {
   static near(a: Vec2, b: Vec2, r: number): boolean {
     return dist(a, b) <= r;
   }
+}
+
+/** Explicit-Euler stability: dt * (4 dPlane + 2 dZ) must stay below 1. */
+export function stableDt(params: SimParams): number {
+  return Math.min(0.5, 0.95 / (4 * params.dPlane + 2 * params.dZ + 1e-6));
 }

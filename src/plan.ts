@@ -11,6 +11,7 @@ export interface DyeDef { name: string; color: string }
 export type Side = 'top' | 'bottom';
 
 export type Stroke =
+  /** amount = dye concentration in the liquid; pen = liquid volume in layer-fills (soak) */
   | { kind: 'brush'; p: Vec2; r: number; dye: number; amount: number; side: Side; pen: number }
   | { kind: 'dip'; dye: number; amount: number; pen: number };
 
@@ -53,7 +54,7 @@ export const DEFAULT_DYES: DyeDef[] = [
 
 export const DEFAULT_PARAMS: SimParams = {
   dPlane: 0.12,
-  dZ: 0.08,
+  dZ: 0.3,
   adsorb: 0.02,
   capacity: 1.0,
   pressRadius: 1.5,
