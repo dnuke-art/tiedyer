@@ -44,8 +44,6 @@ export class Sim {
   f: Float32Array[] = [];
   /** adsorbed (fixed) dye per species */
   h: Float32Array[] = [];
-  /** liquid fill fraction per texel, 0 = dry, up to press (a squeezed layer holds less) */
-  wet = new Float32Array(0);
   private tmp = new Float32Array(0);
   private hsum = new Float32Array(0);
 
@@ -74,7 +72,6 @@ export class Sim {
     this.press = new Float32Array(n).fill(1);
     this.tmp = new Float32Array(n);
     this.hsum = new Float32Array(n);
-    this.wet = new Float32Array(n);
     this.f = [];
     this.h = [];
     for (let k = 0; k < this.nDyes; k++) {
@@ -147,26 +144,25 @@ export class Sim {
 
   resetDye(): void {
     for (let k = 0; k < this.nDyes; k++) { this.f[k].fill(0); this.h[k].fill(0); }
-    this.wet.fill(0);
     this.t = 0;
   }
 
   /**
    * Wicking. Liquid squirted on one surface fills the outermost layer's pores and the
-   * excess passes to the next layer, a saturation front. Each layer can hold `press`
+   * excess passes to the next layer, a saturation front. Each layer absorbs `press`
    * worth of liquid (a squeezed layer holds less; a fully pressed one stops the front).
+   * Liquid arriving at an already-wet layer mixes into it rather than tunnelling past,
+   * so a second colour on the same spot blends with the first at the same depths.
    *
-   * Every texel decides for itself how much liquid reaches it: the volume applied at
-   * its folded position minus what the layers between it and the surface can absorb,
-   * using their capacity BEFORE this stroke. Reading pre-stroke capacity (a smooth
-   * field) rather than the layers' post-stroke fill keeps the front smooth even though
-   * the texel grids of mirrored layers are offset by up to half a texel.
+   * Every texel works out its own reach: the volume applied at its folded position
+   * minus what the layers between it and the surface absorb, walking the true column
+   * at its own position (mirrored layers have texel grids offset by half a texel, so
+   * chaining through neighbours would drift).
    * `volumeAt(i)` returns the liquid volume (in layer-fills) applied above texel i.
    */
   private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number): void {
     const n = this.N * this.M;
     const eps = this.cell * 1e-3;
-    const before = this.wet.slice();
     for (let i = 0; i < n; i++) {
       if (this.faceId[i] < 0) continue;
       const vol = volumeAt(i);
@@ -184,14 +180,10 @@ export class Sim {
         const t = this.texelAt(apply(this.index.Tinv[col[c]], p));
         const pt = this.press[t];
         if (pt <= 0.05) { blocked = true; break; }
-        rem -= Math.max(0, pt - before[t]);
+        rem -= pt;
       }
       if (blocked || rem <= 0) continue;
-      const take = Math.min(rem, Math.max(0, pi - before[i]));
-      if (take > 0) {
-        this.wet[i] = before[i] + take;
-        f[i] += take * conc;
-      }
+      f[i] += Math.min(rem, pi) * conc;
     }
   }
 
@@ -204,11 +196,14 @@ export class Sim {
       this.wickPass(false, s.amount, f, () => volume);
       return;
     }
-    const r2 = s.r * s.r;
+    // Gaussian footprint: full volume at the nozzle, 1/e^2 at the brush radius, and a
+    // tail out to 2r standing in for lateral wicking. Deep layers only get the core,
+    // shallow layers the tail, so every layer's edge is a gradient, not a step.
+    const r2 = s.r * s.r, cut = 4 * r2;
     const volumeAt = (i: number): number => {
       const dx = this.fx[i] - s.p.x, dy = this.fy[i] - s.p.y;
       const d2 = dx * dx + dy * dy;
-      return d2 > r2 ? 0 : volume * (1 - d2 / r2);
+      return d2 > cut ? 0 : volume * Math.exp(-2 * d2 / r2);
     };
     this.wickPass(s.side === 'top', s.amount, f, volumeAt);
   }
