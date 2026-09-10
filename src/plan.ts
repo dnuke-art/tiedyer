@@ -4,7 +4,7 @@
 // re-derived when the folds change (dye strokes are replayed onto the new geometry).
 
 import { Vec2 } from './geom';
-import { FoldLine } from './fold';
+import { FoldLine, initialFaces, applyFold, accordionFolds, zigzagFolds, foldedBBox } from './fold';
 
 export interface DyeDef { name: string; color: string }
 
@@ -71,6 +71,29 @@ export function defaultPlan(): Plan {
     dyes: DEFAULT_DYES.map((d) => ({ ...d })),
     params: { ...DEFAULT_PARAMS },
   };
+}
+
+/**
+ * Demo: kikko itajime. Accordion into a strip, zigzag into equilateral triangles,
+ * then dye each corner of the triangular bundle a different colour so that every
+ * layer picks up dye at the corners (a corner dip, in effect).
+ */
+export function demoPlan(): Plan {
+  const plan = defaultPlan();
+  let faces = initialFaces(plan.W, plan.H);
+  for (const line of accordionFolds(faces, 'x', 6)) { plan.folds.push(line); faces = applyFold(faces, line); }
+  for (const line of zigzagFolds(faces, 'y', 'equilateral')) { plan.folds.push(line); faces = applyFold(faces, line); }
+  const b = foldedBBox(faces);
+  const midY = (b.minY + b.maxY) / 2;
+  const corners: Vec2[] = [
+    { x: b.minX, y: b.minY },
+    { x: b.maxX, y: midY },
+    { x: b.minX, y: b.maxY },
+  ];
+  corners.forEach((p, k) => {
+    plan.strokes.push({ kind: 'brush', p, r: 3.5, dye: k, amount: 0.9, side: 'top', pen: 60 });
+  });
+  return plan;
 }
 
 export function serializePlan(plan: Plan): string {

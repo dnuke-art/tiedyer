@@ -1,7 +1,7 @@
 import './style.css';
 import { Vec2, apply, side, normalize, dist } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
-import { Plan, Stroke, defaultPlan, serializePlan, parsePlan } from './plan';
+import { Plan, Stroke, defaultPlan, demoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
 import { GpuSolver } from './gpu';
@@ -18,7 +18,9 @@ function loadAutosave(): Plan | null {
   } catch { return null; }
 }
 
-let plan: Plan = loadAutosave() ?? defaultPlan();
+const saved = loadAutosave();
+let plan: Plan = saved ?? demoPlan();
+const DEMO_STEPS = 150;
 let faces: Face[] = [];
 const sim = new Sim(plan);
 
@@ -208,6 +210,7 @@ function buildSidebar(): void {
     el('h1', {}, 'tiedyer', el('small', {}, 'fold · bind · dye · unfold')),
     row(
       btn('New', () => { plan = defaultPlan(); reconfigure(); refreshSwatches(); }),
+      btn('Demo', () => { plan = demoPlan(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
     ),
@@ -476,4 +479,5 @@ function renderOnce(): void {
 
 buildSidebar();
 rebuildGeometry();
+if (!saved) doSteps(DEMO_STEPS);
 requestAnimationFrame(frame);
