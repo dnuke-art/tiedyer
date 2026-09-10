@@ -1,0 +1,5 @@
+id = "a33ed335-57d7-4017-b6e3-750db72a752d"
+slug = "tiedyer"
+name = "Tiedyer"
+description = "Browser sandbox for planning tie-dye: origami-style folds, bindings, and physically based dye diffusion through the folded layers."
+tags = ["art", "tie-dye", "simulation", "typescript", "browser", "origami"]
