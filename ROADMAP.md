@@ -13,6 +13,7 @@ the engine underneath actually is, and where that could go.
   actually squeezes the disc rather than just painting a press field.
 - Folds inside the cloth solver (freeze, rotate, activate), so fold-then-twist and
   twist-then-fold plans are possible.
+- True 3D bundle view: orbit, bands anywhere, dye from any direction (see below).
 - Pole wrap (arashi): wrap the cloth around a cylinder, compress along the axis.
 - Straight-line bands and shaped clamps as first-class bindings.
 - Per-dye chemistry: reactive versus acid, viscosity, ice-dye splitting into components.
@@ -20,6 +21,58 @@ the engine underneath actually is, and where that could go.
   finer texel grid interpolated from it.
 - Garment shapes instead of rectangles; render the result on a shirt.
 - Share a plan by URL.
+
+## True 3D bundle view (spiral first)
+
+Goal: orbit the bundle, put bands anywhere, and dye from any side or direction, not just
+straight down or straight up. Sized below; the short version is that the sim barely
+changes and the work is a renderer plus 3D picking, three to four focused days.
+
+**Why it is cheap on the sim side.** The solver already sees only a Bundle: positions,
+weighted contacts, surface flags. Wicking is a layered flow from an *entry set* of texels
+with volumes; "top" and "bottom" are just two ways of choosing that set. A 3D squirt
+chooses it differently: the texels visible from the camera within the brush footprint
+around the hit point. Diffusion, fixing, press and rinse are untouched.
+
+**Rendering.** WebGL2, orbit camera, two styles over the same data:
+
+- *Mesh.* The particle grid is a connected sheet, so two triangles per grid quad,
+  textured with the dye canvas at UV = flat coordinates (the GPU canvas is already a
+  texture; zero copy), double-sided, lit. 20k triangles at 101² particles. Crisp,
+  correct occlusion, and free of gaps at oblique angles. This is the default.
+- *Surfel splats.* Each particle as an oriented Gaussian disc: normal from the grid
+  neighbours, radius about 0.7 h, alpha falling off as a Gaussian, drawn as instanced
+  quads. This is Gaussian splatting without the fitting step, since the geometry is
+  known, not reconstructed. Depth-tested with an alpha cutoff needs no sorting; sorted
+  blending gives the soft look. Same cost as the mesh. Worth having as a style, and it
+  keeps working when a scrunch makes the mesh ugly.
+
+**Picking.** Render an ID buffer (texel index as colour) from the current camera. A
+pointer position gives the hit texel, its position and normal. Squirt entry set: texels
+in the ID buffer within the footprint on screen, or within 3D distance of the hit point
+and facing the camera. Pressure sensitivity later.
+
+**Bands in 3D.** A rubber band is a slab: a plane through the bundle with a width. Drag
+a line across the bundle in the view; the slab contains that line and the view
+direction. Everything inside is pressed, with the usual halo outside. Today's disc
+stamps are the special case of a slab along z. Clamps are two parallel slabs or a pad.
+
+**Plan format.** Strokes gain a 3D hit point and direction; bands gain a plane. Replay
+after a re-twist snaps the hit point to the nearest surface texel.
+
+**Fold mode gets it too.** Give flat-fold bundles a real 3D position (layer index times
+thickness) and the same voxel exposure the cloth uses, and the edges of a folded stack
+become dyeable. That is edge dipping, which is how itajime is actually done and which
+the 2D view cannot express.
+
+**Estimate.**
+
+| Piece | Size |
+| --- | --- |
+| WebGL2 mesh + splat renderer, lighting, orbit and touch camera | 500 to 700 lines, 1.5 to 2 days |
+| ID-buffer picking, 3D strokes, entry-set wicking, slab bands, press | 200 to 300 lines, half a day |
+| Flat-fold 3D positions and voxel exposure, fold-mode mesh | about 200 lines, half a day to a day |
+| UI: 2D/3D toggle, camera controls, mobile gestures | half a day |
 
 ## Beyond tie-dye: a higher-dimensional painting app
 
