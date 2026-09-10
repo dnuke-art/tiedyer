@@ -108,7 +108,8 @@ Bands and clamps as constraints inside the cloth sim. Inverse design. Curved fol
 weave anisotropy, evaporation. The twist takes about 15 s at 101² particles.
 
 See `BRIEF.md` for the kickoff brief and prior-art links, `PRODUCT.md` for the product
-brief, and `ROADMAP.md` for what comes next and where this could go beyond tie-dye.
+brief, `ROADMAP.md` for what comes next and where this could go beyond tie-dye, and
+`docs/3d-view.md` for a write-up of how the 3D view was built.
 
 ## Headless testing
 
