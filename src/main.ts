@@ -54,6 +54,7 @@ function sync3d(px: Float32Array, py: Float32Array, pz: Float32Array, reframe: b
   const key = `${sim.N}x${sim.M}x${plan.W}x${plan.H}`;
   if (key !== gridKey) { view3d.setGrid(sim.N, sim.M, plan.W, plan.H); gridKey = key; reframe = true; }
   view3d.setPositions(px, py, pz);
+  geomVersion++;
   if (reframe) view3d.frame();
 }
 function is3d(): boolean { return view.three && !!view3d; }
@@ -78,7 +79,10 @@ function setThree(on: boolean): void {
   cam3dEl.hidden = !view.three;
   try { localStorage.setItem('tiedyer.view3d', view.three ? '1' : '0'); } catch { /* ignore */ }
   if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
+  if (view.three && (tool === 'dye' || tool === 'band')) setTool('orbit');
+  if (!view.three && tool === 'orbit') setTool('dye');
   dirty = true;
+  lastFlatKey = '';
 }
 v2dBtn.addEventListener('click', () => setThree(false));
 v3dBtn.addEventListener('click', () => setThree(true));
@@ -95,7 +99,13 @@ const budgetMs = 8;
 let stepsPerFrame = 20;
 /** set whenever something on screen changed; the frame loop only redraws then */
 let dirty = true;
+/** set when the dye image must be regenerated (steps, strokes, colour options) */
+let dirtyDye = true;
+let texVersion = 0;
+let uploadedTex = -1;
+let geomVersion = 0;
 let lastHoverKey = '';
+let lastFlatKey = '';
 
 let foldDraft: Vec2[] = [];
 let hoverFolded: Vec2 | null = null;
@@ -118,6 +128,7 @@ function replay(): void {
   for (const s of plan.strokes) sim.applyStroke(s, plan.params, fp);
   gpu?.upload();
   dirty = true;
+  dirtyDye = true;
 }
 
 function pressChanged(): void {
@@ -131,6 +142,7 @@ function doSteps(n: number): void {
   if (gpu) gpu.step(plan.params, n);
   else for (let i = 0; i < n; i++) sim.step(plan.params);
   dirty = true;
+  dirtyDye = true;
 }
 
 function rebuildGeometry(): void {
@@ -304,7 +316,7 @@ function refreshSwatches(): void {
   swatchWrap.replaceChildren(
     ...plan.dyes.map((d, k) => {
       const color = el('input', { type: 'color', value: d.color, title: d.name }) as HTMLInputElement;
-      color.addEventListener('input', () => { d.color = color.value; dirty = true; touched(); });
+      color.addEventListener('input', () => { d.color = color.value; dirty = true; dirtyDye = true; touched(); });
       const sw = el('div', { class: 'swatch' + (k === brush.dye ? ' on' : ''), title: d.name }, color);
       sw.addEventListener('click', () => { brush.dye = k; refreshSwatches(); });
       return sw;
@@ -421,12 +433,12 @@ function buildSidebar(): void {
     el('details', { open: true },
       el('summary', {}, 'View'),
       row(el('label', {}, '3D style'), styleSel),
-      checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; }),
+      checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
       checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
       checkbox('Shade by layer count', () => view.shadeLayers, (v) => { view.shadeLayers = v; dirty = true; }),
-      checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; }),
-      slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; }, (v) => v.toFixed(1)),
+      checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; dirtyDye = true; }),
+      slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; dirtyDye = true; }, (v) => v.toFixed(1)),
     ),
     el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke'),
   );
@@ -469,6 +481,7 @@ function addStroke(s: Stroke): void {
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();
   dirty = true;
+  dirtyDye = true;
   touched();
 }
 
@@ -486,15 +499,21 @@ function stampAt(p: Vec2): void {
   }
 }
 
-/** 3D hit under a pointer event on the folded overlay: texel index and position */
-function hit3d(ev: PointerEvent | MouseEvent): { id: number; p: Vec3; d: Vec3; x: number; y: number } | null {
+/** 3D hit under a pointer event on the folded overlay: texel index and position (cached per pointer position + camera) */
+type Hit = { id: number; p: Vec3; d: Vec3; x: number; y: number } | null;
+let hitCache: { key: string; hit: Hit } | null = null;
+function hit3d(ev: PointerEvent | MouseEvent): Hit {
   if (!view3d) return null;
   const r = foldedCanvas.getBoundingClientRect();
   const k = folded3dCanvas.width / Math.max(1, r.width);
   const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
+  const c = view3d.cam;
+  const key = `${x | 0},${y | 0},${c.az},${c.el},${c.dist},${c.target.join(',')},${geomVersion},${folded3dCanvas.width}`;
+  if (hitCache && hitCache.key === key) return hitCache.hit;
   const id = view3d.pick(x, y);
-  if (id < 0) return null;
-  return { id, p: view3d.position(id), d: view3d.rayDir(x, y), x, y };
+  const hit: Hit = id < 0 ? null : { id, p: view3d.position(id), d: view3d.rayDir(x, y), x, y };
+  hitCache = { key, hit };
+  return hit;
 }
 
 function stampAt3d(ev: PointerEvent): void {
@@ -577,12 +596,14 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       const [a, b] = [...touches.values()];
       gesture = { kind: 'orbit', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      hover3d = null;
       dragging = false; lastStamp = null; lastStamp3 = null; bandStart = null; bandEnd = null;
       return;
     }
   }
   if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
+    hover3d = null;
     return;
   }
   if (ev.button !== 0) return;
@@ -676,6 +697,7 @@ function frame(): void {
       while (performance.now() - t0 < budgetMs && n < stepsPerFrame) { sim.step(plan.params); n++; }
     }
     dirty = true;
+    dirtyDye = true;
     // auto-pause once the batch is done: almost no free dye left to move
     if (frameCount % 45 === 0 && batchDone()) setPlaying(false);
   }
@@ -748,11 +770,15 @@ function setPlaying(on: boolean): void {
 }
 
 function renderOnce(): void {
-  if (gpu) {
-    gpu.draw(plan.dyes, view);
-    renderer.src = gpu.canvas;
-  } else {
-    renderer.updateTexture(sim, plan.dyes, view);
+  if (dirtyDye) {
+    if (gpu) {
+      gpu.draw(plan.dyes, view);
+      renderer.src = gpu.canvas;
+    } else {
+      renderer.updateTexture(sim, plan.dyes, view);
+    }
+    dirtyDye = false;
+    texVersion++;
   }
 
   // picking
@@ -807,8 +833,12 @@ function renderOnce(): void {
     }
   }
 
-  renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
-  if (plan.mode === 'twist' && tool === 'centre') {
+  const flatKey = `${texVersion}|${hoverFace}|${flatMarkers.map((m) => `${m.x.toFixed(2)},${m.y.toFixed(2)}`).join(';')}|${view.showCreases}|${flatCanvas.clientWidth}x${flatCanvas.clientHeight}|${geomVersion}|${plan.mode}${tool === 'centre' ? '|c' : ''}`;
+  if (flatKey !== lastFlatKey) {
+    lastFlatKey = flatKey;
+    renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
+  }
+  if (plan.mode === 'twist' && tool === 'centre' && flatKey === lastFlatKey) {
     const ctx = flatCanvas.getContext('2d')!;
     const q = apply(renderer.flatView, plan.twist.c);
     ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 2 * renderer.dpr;
@@ -847,7 +877,7 @@ function renderOnce(): void {
   folded3dCanvas.hidden = !is3d();
   if (is3d() && view3d) {
     Renderer.fit(folded3dCanvas, Math.min(renderer.dpr, 1.5));
-    view3d.setTexture(renderer.src);
+    if (uploadedTex !== texVersion) { view3d.setTexture(renderer.src); uploadedTex = texVersion; }
     view3d.draw();
     draw3dOverlay(hit);
   } else if (plan.mode === 'twist') {

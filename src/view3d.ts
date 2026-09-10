@@ -183,6 +183,7 @@ export class View3D {
   private h = 1;
   private hasCloth = false;
   private idDirty = true;
+  private idCamKey = '';
   style: Style = 'mesh';
   cam: Camera = { target: [30, 30, 0], dist: 90, az: -Math.PI / 2, el: 0.9, fov: 0.7 };
   light: Vec3 = norm([0.4, 0.3, 1]);
@@ -374,6 +375,11 @@ export class View3D {
     gl.bindVertexArray(null);
   }
 
+  private camKey(): string {
+    const c = this.cam;
+    return `${c.az},${c.el},${c.dist},${c.target[0]},${c.target[1]},${c.target[2]},${this.style}`;
+  }
+
   /** Draw the view into the canvas (backing store sized by the caller). */
   draw(): void {
     const gl = this.gl;
@@ -381,7 +387,6 @@ export class View3D {
     this.cameraMatrices(w, h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.render(this.viewProj, this.eye, false, w, h);
-    this.idDirty = true;
   }
 
   private ensureIdBuffer(): void {
@@ -391,13 +396,15 @@ export class View3D {
       this.idW = w; this.idH = h;
       this.idDirty = true;
     }
-    if (this.idDirty) {
+    const key = this.camKey();
+    if (this.idDirty || key !== this.idCamKey) {
       const gl = this.gl;
       this.cameraMatrices(w, h);
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.idFbo);
       this.render(this.viewProj, this.eye, true, w, h);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       this.idDirty = false;
+      this.idCamKey = key;
     }
   }
 
