@@ -41,7 +41,18 @@ function mulberry32(a: number): () => number {
   };
 }
 
-export class Cloth {
+/** The part of a cloth needed to draw and pick it. */
+export interface ClothView {
+  N: number;
+  M: number;
+  n: number;
+  h: number;
+  x: Float32Array;
+  y: Float32Array;
+  z: Float32Array;
+}
+
+export class Cloth implements ClothView {
   N: number;
   M: number;
   n: number;
@@ -306,29 +317,38 @@ export class Cloth {
       b.surfaceTop[i] = airAt(cx, cy, cz + 1) ? 1 : 0;
       b.surfaceBot[i] = airAt(cx, cy, cz - 1) ? 1 : 0;
     }
-    const cloth = this;
-    const hx = this.h;
-    return {
-      ...b,
-      cloth,
-      column(p: Vec2): number[] {
-        const out: number[] = [];
-        for (let i = 0; i < n; i++) {
-          if (Math.hypot(cloth.x[i] - p.x, cloth.y[i] - p.y) <= 0.55 * hx) out.push(i);
-        }
-        out.sort((a, c) => cloth.z[c] - cloth.z[a]);
-        return out;
-      },
-      bbox(): BBox { return { minX, minY, maxX, maxY }; },
-    };
+    return makeClothBundle({ N: this.N, M: this.M, n, h: this.h, x: this.x.slice(), y: this.y.slice(), z: this.z.slice() }, b);
   }
 }
 
 export interface ClothBundle extends Bundle {
-  cloth: Cloth;
+  cloth: ClothView;
 }
 
-export type Progress = (phase: string, frac: number, cloth: Cloth) => void;
+/** Assemble a ClothBundle from plain arrays (also used on the worker boundary). */
+export function makeClothBundle(view: ClothView, b: Omit<Bundle, 'column' | 'bbox'>): ClothBundle {
+  const n = view.n, hx = view.h;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < n; i++) {
+    minX = Math.min(minX, view.x[i]); maxX = Math.max(maxX, view.x[i]);
+    minY = Math.min(minY, view.y[i]); maxY = Math.max(maxY, view.y[i]);
+  }
+  return {
+    ...b,
+    cloth: view,
+    column(p: Vec2): number[] {
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) {
+        if (Math.hypot(view.x[i] - p.x, view.y[i] - p.y) <= 0.55 * hx) out.push(i);
+      }
+      out.sort((a, c) => view.z[c] - view.z[a]);
+      return out;
+    },
+    bbox(): BBox { return { minX, minY, maxX, maxY }; },
+  };
+}
+
+export type Progress = (phase: string, frac: number, cloth: ClothView) => void;
 
 /** Pinch the centre, lift it, twist for `turns`, release, pat flat. Async so the UI can draw progress. */
 export async function runTwist(W: number, H: number, N: number, tp: TwistParams, onProgress: Progress, dims: GridDims): Promise<ClothBundle> {

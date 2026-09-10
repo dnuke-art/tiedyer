@@ -4,7 +4,7 @@ import { Vec2, Mat, mul, apply, invert, translation, scaling, BBox } from './geo
 import { Face, foldedBBox, facesAtFolded, faceAtFlat } from './fold';
 import { Sim } from './sim';
 import { DyeDef, BandStamp } from './plan';
-import { Cloth } from './cloth';
+import { ClothView } from './cloth';
 
 export interface ViewOpts {
   fixedOnly: boolean;
@@ -262,7 +262,7 @@ export class Renderer {
    * texel (or white while the cloth is still being manipulated), painter-sorted by
    * height and lightly shaded by height so pleats read as relief.
    */
-  drawCloth(cloth: Cloth, colors: Uint8ClampedArray | null, bands: BandStamp[], opts: ViewOpts, markers: Vec2[], overlay?: (ctx: CanvasRenderingContext2D, V: Mat) => void): void {
+  drawCloth(cloth: ClothView, colors: Uint8ClampedArray | null, bands: BandStamp[], opts: ViewOpts, markers: Vec2[], overlay?: (ctx: CanvasRenderingContext2D, V: Mat) => void): void {
     const c = this.folded;
     Renderer.fit(c, this.dpr);
     const ctx = c.getContext('2d')!;

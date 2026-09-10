@@ -57,16 +57,20 @@ a spot on the bundle numbers every layer under the cursor on the cloth.
 
 **v1 (built):** rectangular cloth, simple folds through all layers, presets for accordion,
 zigzag triangles (equilateral and right), diagonal, and hand-drawn creases; disc bindings;
-brush and dip dye with depth attenuation; diffusion with fixing and rinse, on a WebGL2
-solver with a CPU fallback, up to 800 texels; bidirectional hover picking; autosave, JSON
-export and import; static build with Pages workflow.
+squirt and dip dye as a wicking front; diffusion with fixing and rinse, on a WebGL2 solver
+with a CPU fallback, up to 800 texels; bidirectional hover picking; autosave, JSON export
+and import; static build with Pages workflow.
+
+**v1.5 (built):** the bundle abstraction (any geometry that can say which texels touch and
+which are exposed feeds the same dye solver), and a particle-cloth twist that produces the
+classic spiral: pinch, wind, pat flat, dye in wedges on both sides.
 
 **v2:** side-by-side comparison
 against photos of real dyed cloth to calibrate spread, soak, and fixing; folds through a
 subset of layers; straight-line rubber bands as first-class bindings; per-dye parameters
 (reactive vs. acid, viscosity for ice dye).
 
-**Later:** twist and scrunch via a particle cloth, which is what a spiral needs; curved
+**Later:** scrunch, crumple and bands as operations inside the particle cloth; curved
 folds; stitched shibori; garment shapes instead of rectangles; sharing a plan by URL.
 
 **Not doing:** inverse design that proposes folds from a target picture, cloth mechanics
@@ -84,9 +88,9 @@ folds; stitched shibori; garment shapes instead of rectangles; sharing a plan by
 
 ## Risks and open questions
 
-- **Origami covers most folds but not the most popular one.** Spirals are twists, and
-  twists are not simple folds. v1 says so up front; v2 does not fix it. If most of my real
-  sessions are spirals, the particle-cloth work moves up the list.
+- **The twist is a simulation, not a measurement.** Pleat count, how far the cloth
+  gathers, and how open the layers are depend on friction, pinch size and cloth stiffness
+  that were tuned to look right, not measured. A spiral test shirt is the calibration.
 - **Physics that looks right may still predict wrong.** The diffusion model has never been
   calibrated here. Until the photo comparison exists, treat the batch step as qualitative.
 - **Geometry rebuild cost.** The solver is fast now, but re-deriving the layer graph is a

@@ -63,6 +63,16 @@ in [0,1] that blocks dye supply, reduces capacity, and reduces cross-layer trans
 **Dye strokes** are stored in bundle coordinates and replayed whenever the folds change,
 so you can dye first and then experiment with the folding.
 
+**Twists are a particle cloth.** In twist mode the cloth is a grid of particles on a
+table, solved with position-based dynamics (structure, shear and bend constraints,
+particle self-collision through a spatial hash, table friction). A pinched disc at the
+centre is driven kinematically: lifted, then rotated. Any fabric that touches the core
+sticks to it and turns with it, so the core grows as it winds, which is what makes the
+rest of the cloth gather into spiralling pleats. After the turns the pinch is released
+and a ceiling pats the bundle flat. Particle positions, contacts with other layers within
+reach, and exposure (voxel flood fill of the rasterized sheet) become a Bundle for the same
+dye solver. The run happens in a Web Worker with live progress.
+
 ## Files
 
 - `src/geom.ts` – vectors, affine matrices, polygon clipping
@@ -70,15 +80,19 @@ so you can dye first and then experiment with the folding.
 - `src/sim.ts` – texture + layer-contact graph, press field, strokes, explicit Euler step (CPU reference)
 - `src/gpu.ts` – WebGL2 solver and colour mapping (same step as a fragment shader)
 - `src/render.ts` – canvas rendering of both views, picking helpers
-- `src/plan.ts` – the serializable plan (cloth, folds, bands, strokes, dyes, params)
+- `src/bundle.ts` – the Bundle contract (positions, weighted contacts, surface flags); flat-fold producer
+- `src/cloth.ts` – particle cloth, twist operation, bundle extraction
+- `src/twist.worker.ts` – runs the twist off the main thread
+- `src/plan.ts` – the serializable plan (cloth, mode, folds, twist, bands, strokes, dyes, params)
 - `src/main.ts` – UI
 
 A debug handle is exposed as `window.tiedyer` (`step(n)`, `rebuild()`, `plan`, `sim`).
 
 ## Not yet
 
-Spirals, scrunch and crumple (need a particle cloth, not origami). Inverse design.
-Wrinkles, curved folds, weave anisotropy, wicking/evaporation.
+Scrunch and crumple (the particle cloth can do them; the operations are not written).
+Bands and clamps as constraints inside the cloth sim. Inverse design. Curved folds,
+weave anisotropy, evaporation. The twist takes about 15 s at 101² particles.
 
 See `BRIEF.md` for the kickoff brief and prior-art links.
 

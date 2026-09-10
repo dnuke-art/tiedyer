@@ -104,6 +104,27 @@ export function demoPlan(): Plan {
   return plan;
 }
 
+/**
+ * Demo: classic spiral. Pinch the centre, three turns, then six wedges of dye on
+ * the top and the same on the underside, two of each colour, with gaps between.
+ */
+export function spiralDemoPlan(): Plan {
+  const plan = defaultPlan();
+  plan.mode = 'twist';
+  plan.N = 101;
+  plan.twist = { c: { x: 30, y: 30 }, turns: 3, pinch: 1.5, friction: 0.03, flatten: 2.5 };
+  const c = plan.twist.c;
+  for (const side of ['top', 'bottom'] as const) {
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3 + Math.PI / 6;
+      for (let r = 1.5; r <= 14; r += 2.5) {
+        plan.strokes.push({ kind: 'brush', p: { x: c.x + r * Math.cos(a), y: c.y + r * Math.sin(a) }, r: 1.6 + r * 0.06, dye: k % 3, amount: 0.9, side, pen: 12 });
+      }
+    }
+  }
+  return plan;
+}
+
 export function serializePlan(plan: Plan): string {
   return JSON.stringify(plan);
 }

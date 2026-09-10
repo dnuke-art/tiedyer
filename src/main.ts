@@ -2,8 +2,8 @@ import './style.css';
 import { Vec2, Mat, apply, side, normalize, dist } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
-import { runTwist, Cloth, ClothBundle } from './cloth';
-import { Plan, Stroke, Mode, defaultPlan, demoPlan, serializePlan, parsePlan } from './plan';
+import { ClothView, ClothBundle, makeClothBundle } from './cloth';
+import { Plan, Stroke, Mode, defaultPlan, demoPlan, spiralDemoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
 import { GpuSolver } from './gpu';
@@ -26,9 +26,12 @@ const DEMO_STEPS = 150;
 let faces: Face[] = [];
 let bundle: FlatFoldBundle | ClothBundle | null = null;
 /** cloth being manipulated while a twist run is in progress */
-let liveCloth: Cloth | null = null;
+let liveCloth: ClothView | null = null;
 let twistRun = 0;
 let twistStatus = '';
+/** batch steps to run once the geometry is ready (demos) */
+let pendingSteps = 0;
+const twistWorker = new Worker(new URL('./twist.worker.ts', import.meta.url), { type: 'module' });
 const sim = new Sim(plan);
 
 function isFold(b: FlatFoldBundle | ClothBundle | null): b is FlatFoldBundle { return !!b && 'faces' in b; }
@@ -95,7 +98,7 @@ function doSteps(n: number): void {
 }
 
 function rebuildGeometry(): void {
-  if (plan.mode === 'twist') { void rebuildTwist(); return; }
+  if (plan.mode === 'twist') { rebuildTwist(); return; }
   twistRun++; liveCloth = null; twistStatus = '';
   faces = buildFaces(plan.W, plan.H, plan.folds);
   bundle = flatFoldBundle(sim.dims(), faces);
@@ -111,24 +114,31 @@ function finishGeometry(): void {
   touched();
 }
 
-async function rebuildTwist(): Promise<void> {
+function rebuildTwist(): void {
   const run = ++twistRun;
   faces = [];
   bundle = null;
-  const d = sim.dims();
-  const result = await runTwist(plan.W, plan.H, plan.N, plan.twist, (phase, frac, cloth) => {
-    if (run !== twistRun) return;
-    liveCloth = cloth;
-    twistStatus = `${phase} ${(frac * 100).toFixed(0)}%`;
-    dirty = true;
-  }, d);
-  if (run !== twistRun) return; // superseded
-  liveCloth = null;
-  twistStatus = '';
-  bundle = result;
-  finishGeometry();
+  twistStatus = 'starting';
   dirty = true;
+  twistWorker.postMessage({ id: run, W: plan.W, H: plan.H, N: plan.N, tp: plan.twist, dims: sim.dims() });
 }
+
+twistWorker.onmessage = (e: MessageEvent) => {
+  const m = e.data;
+  if (m.id !== twistRun) return; // superseded run
+  if (m.type === 'progress') {
+    liveCloth = m.view;
+    twistStatus = `${m.phase} ${(m.frac * 100).toFixed(0)}%`;
+    dirty = true;
+  } else if (m.type === 'done') {
+    liveCloth = null;
+    twistStatus = '';
+    bundle = makeClothBundle(m.view, m.bundle);
+    finishGeometry();
+    if (pendingSteps > 0) { doSteps(pendingSteps); pendingSteps = 0; }
+    dirty = true;
+  }
+};
 
 function setMode(m: Mode): void {
   if (plan.mode === m) return;
@@ -297,7 +307,7 @@ function buildSidebar(): void {
       slider('pinch cm', 0.5, 5, 0.25, () => plan.twist.pinch, (v) => { plan.twist.pinch = v; touched(); }),
       slider('friction', 0, 0.2, 0.005, () => plan.twist.friction, (v) => { plan.twist.friction = v; touched(); }, (v) => v.toFixed(3)),
       slider('pat flat cm', 0, 6, 0.25, () => plan.twist.flatten, (v) => { plan.twist.flatten = v; touched(); }),
-      row(btn('Run twist', () => { void rebuildTwist(); })),
+      row(btn('Run twist', () => rebuildTwist())),
       el('div', { class: 'note' }, 'Pinch the centre, twist, release, pat flat. A particle cloth on a table with self-collision; the core grows as fabric wraps onto it. Runs a few seconds.'));
   (window as unknown as { refreshCentre: () => void }).refreshCentre = refreshCentre;
 
@@ -312,8 +322,9 @@ function buildSidebar(): void {
   sideEl.replaceChildren(
     el('h1', {}, 'tiedyer', el('small', {}, 'fold · bind · dye · unfold')),
     row(
-      btn('New', () => { plan = defaultPlan(); reconfigure(); refreshSwatches(); }),
-      btn('Demo', () => { plan = demoPlan(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
+      btn('New', () => { plan = defaultPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); }),
+      btn('Kikko', () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
+      btn('Spiral', () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); }),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
     ),
@@ -391,6 +402,7 @@ function loadPlanFile(): void {
     if (!f) return;
     try {
       plan = parsePlan(await f.text());
+      refreshModeUI();
       reconfigure();
       refreshSwatches();
     } catch (e) { console.error('load failed', e); }
