@@ -83,6 +83,7 @@ function setThree(on: boolean): void {
   if (!view.three && tool === 'orbit') setTool('dye');
   dirty = true;
   lastFlatKey = '';
+  last3dKey = '';
 }
 v2dBtn.addEventListener('click', () => setThree(false));
 v3dBtn.addEventListener('click', () => setThree(true));
@@ -104,6 +105,7 @@ let dirtyDye = true;
 let texVersion = 0;
 let uploadedTex = -1;
 let geomVersion = 0;
+let last3dKey = '';
 let lastHoverKey = '';
 let lastFlatKey = '';
 
@@ -709,7 +711,13 @@ function frame(): void {
   const c1 = flatCanvas, c2 = foldedCanvas;
   if (c1.width !== Math.floor(c1.clientWidth * renderer.dpr) || c2.width !== Math.floor(c2.clientWidth * renderer.dpr)
     || c1.height !== Math.floor(c1.clientHeight * renderer.dpr) || c2.height !== Math.floor(c2.clientHeight * renderer.dpr)) dirty = true;
-  if (dirty) { dirty = false; renderOnce(); }
+  if (dirty) {
+    dirty = false;
+    try { renderOnce(); } catch (e) {
+      console.error('render failed', e);
+      statusEl.textContent = `render error: ${(e as Error).message}\n`;
+    }
+  }
   requestAnimationFrame(frame);
 }
 
@@ -881,7 +889,9 @@ function renderOnce(): void {
   if (is3d() && view3d) {
     Renderer.fit(folded3dCanvas, Math.min(renderer.dpr, 1.5));
     if (uploadedTex !== texVersion) { view3d.setTexture(renderer.src); uploadedTex = texVersion; }
-    view3d.draw();
+    const cam = view3d.cam;
+    const key3d = `${texVersion}|${geomVersion}|${cam.az},${cam.el},${cam.dist},${cam.target.join(',')}|${view3d.style}|${folded3dCanvas.width}x${folded3dCanvas.height}`;
+    if (key3d !== last3dKey) { last3dKey = key3d; view3d.draw(); }
     draw3dOverlay(hit);
   } else if (plan.mode === 'twist') {
     const cloth = liveCloth ?? (isCloth(bundle) ? bundle.cloth : null);

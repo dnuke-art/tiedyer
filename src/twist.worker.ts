@@ -17,7 +17,7 @@ ctx.onmessage = async (e: MessageEvent<TwistRequest>) => {
     lastPost = now;
     ctx.postMessage({ type: 'progress', id, phase, frac, view: { N: cloth.N, M: cloth.M, n: cloth.n, h: cloth.h, x: cloth.x.slice(), y: cloth.y.slice(), z: cloth.z.slice() } });
   }, dims);
-  const { cloth, contacts, weights, surfaceTop, surfaceBot, valid, px, py, pz, n, N: bn, M, cell } = b;
-  const msg = { type: 'done', id, view: cloth, bundle: { n, N: bn, M, cell, valid, px, py, pz, contacts, weights, surfaceTop, surfaceBot } };
-  ctx.postMessage(msg, [cloth.x.buffer, cloth.y.buffer, cloth.z.buffer, valid.buffer, px.buffer, py.buffer, pz.buffer, contacts.buffer, weights.buffer, surfaceTop.buffer, surfaceBot.buffer]);
+  const { cloth, contacts, weights, surfaceTop, surfaceBot, exposed, valid, px, py, pz, n, N: bn, M, cell } = b;
+  const msg = { type: 'done', id, view: cloth, bundle: { n, N: bn, M, cell, valid, px, py, pz, contacts, weights, surfaceTop, surfaceBot, exposed } };
+  ctx.postMessage(msg, [cloth.x.buffer, cloth.y.buffer, cloth.z.buffer, valid.buffer, px.buffer, py.buffer, pz.buffer, contacts.buffer, weights.buffer, surfaceTop.buffer, surfaceBot.buffer, exposed.buffer]);
 };
