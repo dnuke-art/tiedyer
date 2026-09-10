@@ -66,7 +66,26 @@ try {
   gpu = null;
 }
 
-const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false, three: true };
+const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false, three: false };
+try { view.three = localStorage.getItem('tiedyer.view3d') === '1'; } catch { /* ignore */ }
+const v2dBtn = document.getElementById('v2d') as HTMLButtonElement;
+const v3dBtn = document.getElementById('v3d') as HTMLButtonElement;
+const cam3dEl = document.getElementById('cam3d')!;
+function setThree(on: boolean): void {
+  view.three = on && !!view3d;
+  v2dBtn.classList.toggle('on', !view.three);
+  v3dBtn.classList.toggle('on', view.three);
+  cam3dEl.hidden = !view.three;
+  try { localStorage.setItem('tiedyer.view3d', view.three ? '1' : '0'); } catch { /* ignore */ }
+  if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
+  dirty = true;
+}
+v2dBtn.addEventListener('click', () => setThree(false));
+v3dBtn.addEventListener('click', () => setThree(true));
+document.getElementById('orbitBtn')!.addEventListener('click', () => setTool(tool === 'orbit' ? 'inspect' : 'orbit'));
+document.getElementById('zoomIn')!.addEventListener('click', () => { view3d?.zoom(0.8); dirty = true; });
+document.getElementById('zoomOut')!.addEventListener('click', () => { view3d?.zoom(1.25); dirty = true; });
+document.getElementById('fitView')!.addEventListener('click', () => { view3d?.frame(); dirty = true; });
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
@@ -246,7 +265,7 @@ const sideEl = document.getElementById('side')!;
 const toolButtons: Record<Tool, HTMLButtonElement> = {} as never;
 const toolHint = document.getElementById('tool-hint')!;
 const HINTS: Record<Tool, string> = {
-  inspect: 'hover to see every layer under the cursor',
+  inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye on the side you are viewing',
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
@@ -268,6 +287,7 @@ function setTool(t: Tool): void {
   tool = t;
   foldDraft = [];
   dirty = true;
+  document.getElementById('orbitBtn')?.classList.toggle('on', t === 'orbit');
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
   toolHint.textContent = HINTS[t];
 }
@@ -316,7 +336,7 @@ function buildSidebar(): void {
   const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const refreshCentre = () => { cx.value = String(plan.twist.c.x); cy.value = String(plan.twist.c.y); };
   toolButtons.centre = btn('Pick', () => setTool('centre'));
-  toolButtons.orbit = btn('Orbit', () => setTool('orbit'));
+  toolButtons.orbit = document.getElementById('orbitBtn') as HTMLButtonElement;
   const styleSel = el('select', {}, el('option', { value: 'mesh' }, 'mesh'), el('option', { value: 'splat' }, 'splats')) as HTMLSelectElement;
   styleSel.addEventListener('change', () => { if (view3d) view3d.style = styleSel.value as 'mesh' | 'splat'; dirty = true; });
   modeButtons = { fold: btn('Fold', () => setMode('fold')), twist: btn('Twist', () => setMode('twist')) };
@@ -400,8 +420,7 @@ function buildSidebar(): void {
     ),
     el('details', { open: true },
       el('summary', {}, 'View'),
-      checkbox('3D bundle view', () => view.three, (v) => { view.three = v; dirty = true; }),
-      row(el('label', {}, 'style'), styleSel, btn('Reset view', () => { view3d?.frame(); dirty = true; }), toolButtons.orbit),
+      row(el('label', {}, '3D style'), styleSel),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
       checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
@@ -471,7 +490,8 @@ function stampAt(p: Vec2): void {
 function hit3d(ev: PointerEvent | MouseEvent): { id: number; p: Vec3; d: Vec3; x: number; y: number } | null {
   if (!view3d) return null;
   const r = foldedCanvas.getBoundingClientRect();
-  const x = (ev.clientX - r.left) * renderer.dpr, y = (ev.clientY - r.top) * renderer.dpr;
+  const k = folded3dCanvas.width / Math.max(1, r.width);
+  const x = (ev.clientX - r.left) * k, y = (ev.clientY - r.top) * k;
   const id = view3d.pick(x, y);
   if (id < 0) return null;
   return { id, p: view3d.position(id), d: view3d.rayDir(x, y), x, y };
@@ -509,7 +529,7 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
   }
   if (gesture && view3d) {
     if (gesture.kind === 'orbit') view3d.orbit(ev.clientX - gesture.x, ev.clientY - gesture.y);
-    else view3d.pan((ev.clientX - gesture.x) * renderer.dpr, (ev.clientY - gesture.y) * renderer.dpr);
+    else view3d.pan((ev.clientX - gesture.x) * folded3dCanvas.width / foldedCanvas.clientWidth, (ev.clientY - gesture.y) * folded3dCanvas.width / foldedCanvas.clientWidth);
     gesture.x = ev.clientX; gesture.y = ev.clientY;
     dirty = true;
     return;
@@ -561,7 +581,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       return;
     }
   }
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
     return;
   }
@@ -677,10 +697,14 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
   ctx.clearRect(0, 0, c.width, c.height);
   if (!view3d || !bundle) return;
   const dpr = renderer.dpr;
+  // the 3D canvas may have a lower backing resolution than the overlay
+  const k = c.width / Math.max(1, folded3dCanvas.width);
+  const proj = (p: Vec3) => { const q = view3d!.project(p); return q ? { x: q.x * k, y: q.y * k, depth: q.depth } : null; };
+  const ppc = (depth: number) => view3d!.pixelsPerCm(depth) * k;
   // flat hover -> where it sits in the bundle
   if (hoverFlat && hoverFlat.x >= 0 && hoverFlat.y >= 0 && hoverFlat.x < sim.W && hoverFlat.y < sim.H) {
     const i = sim.texelAt(hoverFlat);
-    const q = view3d.project([bundle.px[i], bundle.py[i], bundle.pz[i]]);
+    const q = proj([bundle.px[i], bundle.py[i], bundle.pz[i]]);
     if (q) {
       ctx.beginPath(); ctx.arc(q.x, q.y, 6 * dpr, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(255,60,0,0.9)'; ctx.fill();
@@ -688,19 +712,19 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
     }
   }
   if (hit && (tool === 'dye' || tool === 'band' || tool === 'inspect')) {
-    const q = view3d.project(hit.p);
+    const q = proj(hit.p);
     if (q) {
-      const rpx = brush.r * view3d.pixelsPerCm(q.depth);
+      const rpx = brush.r * ppc(q.depth);
       ctx.beginPath(); ctx.arc(q.x, q.y, tool === 'inspect' ? 5 * dpr : rpx, 0, Math.PI * 2);
       ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : tool === 'band' ? '#222' : '#ff7a1a';
       ctx.lineWidth = 2 * dpr; ctx.stroke();
     }
   }
   if (bandStart && bandEnd) {
-    const a = view3d.project(bandStart.p), b = view3d.project(bandEnd);
+    const a = proj(bandStart.p), b = proj(bandEnd);
     if (a && b) {
       ctx.strokeStyle = 'rgba(30,30,30,0.85)';
-      ctx.lineWidth = Math.max(2, brush.r * view3d.pixelsPerCm(a.depth));
+      ctx.lineWidth = Math.max(2, brush.r * ppc(a.depth));
       ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
@@ -822,7 +846,7 @@ function renderOnce(): void {
   stackEl.classList.toggle('three', is3d());
   folded3dCanvas.hidden = !is3d();
   if (is3d() && view3d) {
-    Renderer.fit(folded3dCanvas, renderer.dpr);
+    Renderer.fit(folded3dCanvas, Math.min(renderer.dpr, 1.5));
     view3d.setTexture(renderer.src);
     view3d.draw();
     draw3dOverlay(hit);
@@ -859,6 +883,7 @@ function renderOnce(): void {
 };
 
 buildSidebar();
+setThree(view.three);
 rebuildGeometry();
 if (!saved) doSteps(DEMO_STEPS);
 requestAnimationFrame(frame);
