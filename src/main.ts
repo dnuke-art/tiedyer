@@ -282,7 +282,7 @@ const HINTS: Record<Tool, string> = {
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
   centre: 'click the flat cloth where you pinch',
-  orbit: 'drag to orbit · wheel to zoom · shift-drag to pan (right-drag orbits with any tool)',
+  orbit: 'drag to orbit · wheel or +/− to zoom · shift-drag to pan · with Dye/Band, drag the background to orbit',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -601,7 +601,8 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       return;
     }
   }
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  const onBackground = is3d() && view3d && ev.button === 0 && (tool === 'dye' || tool === 'band') && !hit3d(ev);
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || onBackground || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
     hover3d = null;
     return;
@@ -631,7 +632,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     }
   }
 });
-window.addEventListener('pointerup', (ev) => {
+const release = (ev: PointerEvent) => {
   touches.delete(ev.pointerId);
   if (touches.size < 2) pinchDist = 0;
   if (gesture) { gesture = null; return; }
@@ -655,7 +656,9 @@ window.addEventListener('pointerup', (ev) => {
       pressChanged();
     }
   }
-});
+};
+window.addEventListener('pointerup', release);
+window.addEventListener('pointercancel', release);
 flatCanvas.addEventListener('pointermove', (ev) => { hoverFlat = renderer.flatToCm(ev); });
 flatCanvas.addEventListener('pointerdown', (ev) => {
   ev.preventDefault();
@@ -890,7 +893,7 @@ function renderOnce(): void {
   const shape = plan.mode === 'twist'
     ? (twistStatus ? `twisting: ${twistStatus}` : `twist ${plan.twist.turns} turns · ${sim.N}×${sim.M} particles`)
     : `${faces.length} faces · up to ${isFold(bundle) ? bundle.maxLayers : 0} layers · ${sim.N}×${sim.M} texels`;
-  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
+  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t} · build ${__BUILD__}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).
