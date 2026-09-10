@@ -8,6 +8,7 @@
 // after they change, download() before a stroke is applied on top of GPU state.
 
 import { Sim, stableDt } from './sim';
+import { K } from './bundle';
 import { SimParams, DyeDef } from './plan';
 import { ViewOpts } from './render';
 
@@ -21,7 +22,7 @@ void main() {
 const STEP_FS = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-uniform sampler2D uF, uH, uLinks, uPress;
+uniform sampler2D uF, uH, uPress, uLinkA, uLinkB, uWeightA, uWeightB;
 uniform ivec2 uSize;
 uniform float uDP, uDZ, uRate, uCap, uDt;
 layout(location = 0) out vec4 oF;
@@ -34,6 +35,14 @@ vec4 nb(ivec2 ij, ivec2 d, vec4 f) {
   return texelFetch(uF, q, 0) - f;
 }
 
+// contact texel by packed float index (-1 = none)
+vec4 contact(float idx, float w, vec4 f) {
+  if (idx < 0.0 || w <= 0.0) return vec4(0.0);
+  int i = int(idx + 0.5);
+  ivec2 q = ivec2(i % uSize.x, i / uSize.x);
+  return w * (texelFetch(uF, q, 0) - f);
+}
+
 void main() {
   ivec2 ij = ivec2(gl_FragCoord.xy);
   vec4 f = texelFetch(uF, ij, 0);
@@ -42,9 +51,11 @@ void main() {
   if (pr.g < 0.5) { oF = vec4(0.0); oH = h; return; }
   vec4 lap = nb(ij, ivec2(-1, 0), f) + nb(ij, ivec2(1, 0), f) + nb(ij, ivec2(0, -1), f) + nb(ij, ivec2(0, 1), f);
   lap *= uDP;
-  vec4 L = texelFetch(uLinks, ij, 0);
-  if (L.x >= 0.0) lap += uDZ * pr.r * (texelFetch(uF, ivec2(L.xy), 0) - f);
-  if (L.z >= 0.0) lap += uDZ * pr.r * (texelFetch(uF, ivec2(L.zw), 0) - f);
+  vec4 la = texelFetch(uLinkA, ij, 0), lb = texelFetch(uLinkB, ij, 0);
+  vec4 wa = texelFetch(uWeightA, ij, 0), wb = texelFetch(uWeightB, ij, 0);
+  vec4 cz = contact(la.x, wa.x, f) + contact(la.y, wa.y, f) + contact(la.z, wa.z, f) + contact(la.w, wa.w, f)
+          + contact(lb.x, wb.x, f) + contact(lb.y, wb.y, f) + contact(lb.z, wb.z, f) + contact(lb.w, wb.w, f);
+  lap += uDZ * pr.r * cz;
   vec4 fn = max(f + uDt * lap, vec4(0.0));
   float room = uCap * pr.r - dot(h, vec4(1.0));
   vec4 da = vec4(0.0);
@@ -110,7 +121,10 @@ export class GpuSolver {
   private texF: WebGLTexture[] = [];
   private texH: WebGLTexture[] = [];
   private fbo: WebGLFramebuffer[] = [];
-  private texLinks!: WebGLTexture;
+  private texLinkA!: WebGLTexture;
+  private texLinkB!: WebGLTexture;
+  private texWeightA!: WebGLTexture;
+  private texWeightB!: WebGLTexture;
   private texPress!: WebGLTexture;
   private cur = 0;
   private N = 0;
@@ -137,7 +151,7 @@ export class GpuSolver {
     this.gl = gl;
     this.stepProg = program(gl, STEP_FS);
     this.dispProg = program(gl, DISPLAY_FS);
-    for (const n of ['uF', 'uH', 'uLinks', 'uPress', 'uSize', 'uDP', 'uDZ', 'uRate', 'uCap', 'uDt']) this.stepU[n] = gl.getUniformLocation(this.stepProg, n);
+    for (const n of ['uF', 'uH', 'uPress', 'uLinkA', 'uLinkB', 'uWeightA', 'uWeightB', 'uSize', 'uDP', 'uDZ', 'uRate', 'uCap', 'uDt']) this.stepU[n] = gl.getUniformLocation(this.stepProg, n);
     for (const n of ['uF', 'uH', 'uPress', 'uSize', 'uLogR', 'uLogG', 'uLogB', 'uStrength', 'uFixedOnly', 'uShowPress']) this.dispU[n] = gl.getUniformLocation(this.dispProg, n);
     this.resize();
   }
@@ -163,11 +177,13 @@ export class GpuSolver {
     this.canvas.height = this.M;
     for (const t of [...this.texF, ...this.texH]) gl.deleteTexture(t);
     for (const f of this.fbo) gl.deleteFramebuffer(f);
-    if (this.texLinks) gl.deleteTexture(this.texLinks);
-    if (this.texPress) gl.deleteTexture(this.texPress);
+    for (const t of [this.texLinkA, this.texLinkB, this.texWeightA, this.texWeightB, this.texPress]) if (t) gl.deleteTexture(t);
     this.texF = [this.makeTex(), this.makeTex()];
     this.texH = [this.makeTex(), this.makeTex()];
-    this.texLinks = this.makeTex();
+    this.texLinkA = this.makeTex();
+    this.texLinkB = this.makeTex();
+    this.texWeightA = this.makeTex();
+    this.texWeightB = this.makeTex();
     this.texPress = this.makeTex();
     this.fbo = [0, 1].map((i) => {
       const fb = gl.createFramebuffer()!;
@@ -185,25 +201,33 @@ export class GpuSolver {
     this.upload();
   }
 
-  /** Layer links + press/validity from the sim. Call after geometry or bands change. */
+  /** Contact graph + press/validity from the sim's bundle. Call after geometry or bands change. */
   uploadStatic(): void {
     const gl = this.gl, N = this.N, n = N * this.M;
-    const links = new Float32Array(n * 4);
+    const sim = this.sim, b = sim.bundle;
+    if (!b) return;
+    const linkA = new Float32Array(n * 4), linkB = new Float32Array(n * 4);
+    const wA = new Float32Array(n * 4), wB = new Float32Array(n * 4);
     const press = new Float32Array(n * 4);
-    const sim = this.sim;
     for (let i = 0; i < n; i++) {
-      const u = sim.up[i], d = sim.down[i];
-      links[i * 4] = u >= 0 ? u % N : -1;
-      links[i * 4 + 1] = u >= 0 ? Math.floor(u / N) : -1;
-      links[i * 4 + 2] = d >= 0 ? d % N : -1;
-      links[i * 4 + 3] = d >= 0 ? Math.floor(d / N) : -1;
+      for (let c = 0; c < 4; c++) {
+        linkA[i * 4 + c] = b.contacts[i * K + c];
+        wA[i * 4 + c] = b.weights[i * K + c];
+        linkB[i * 4 + c] = b.contacts[i * K + 4 + c];
+        wB[i * 4 + c] = b.weights[i * K + 4 + c];
+      }
       press[i * 4] = sim.press[i];
-      press[i * 4 + 1] = sim.faceId[i] >= 0 ? 1 : 0;
+      press[i * 4 + 1] = b.valid[i] ? 1 : 0;
     }
-    gl.bindTexture(gl.TEXTURE_2D, this.texLinks);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, this.M, gl.RGBA, gl.FLOAT, links);
-    gl.bindTexture(gl.TEXTURE_2D, this.texPress);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, this.M, gl.RGBA, gl.FLOAT, press);
+    const up = (tex: WebGLTexture, data: Float32Array) => {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, this.M, gl.RGBA, gl.FLOAT, data);
+    };
+    up(this.texLinkA, linkA);
+    up(this.texLinkB, linkB);
+    up(this.texWeightA, wA);
+    up(this.texWeightB, wB);
+    up(this.texPress, press);
   }
 
   /** sim.f / sim.h -> GPU */
@@ -253,8 +277,11 @@ export class GpuSolver {
     gl.uniform1f(this.stepU.uRate, params.adsorb);
     gl.uniform1f(this.stepU.uCap, params.capacity);
     gl.uniform1f(this.stepU.uDt, stableDt(params));
-    this.bindTex(2, this.texLinks, this.stepU.uLinks);
-    this.bindTex(3, this.texPress, this.stepU.uPress);
+    this.bindTex(2, this.texPress, this.stepU.uPress);
+    this.bindTex(3, this.texLinkA, this.stepU.uLinkA);
+    this.bindTex(4, this.texLinkB, this.stepU.uLinkB);
+    this.bindTex(5, this.texWeightA, this.stepU.uWeightA);
+    this.bindTex(6, this.texWeightB, this.stepU.uWeightB);
     for (let s = 0; s < n; s++) {
       const src = this.cur, dst = 1 - this.cur;
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[dst]);

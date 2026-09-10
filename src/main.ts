@@ -1,6 +1,7 @@
 import './style.css';
 import { Vec2, apply, side, normalize, dist } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
+import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { Plan, Stroke, defaultPlan, demoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
@@ -22,6 +23,7 @@ const saved = loadAutosave();
 let plan: Plan = saved ?? demoPlan();
 const DEMO_STEPS = 150;
 let faces: Face[] = [];
+let bundle: FlatFoldBundle | null = null;
 const sim = new Sim(plan);
 
 const flatCanvas = document.getElementById('flat') as HTMLCanvasElement;
@@ -86,7 +88,8 @@ function doSteps(n: number): void {
 
 function rebuildGeometry(): void {
   faces = buildFaces(plan.W, plan.H, plan.folds);
-  sim.rebuildGeometry(faces);
+  bundle = flatFoldBundle(sim.dims(), faces);
+  sim.setBundle(bundle);
   sim.rebuildPress(plan.bands, plan.params);
   gpu?.uploadStatic();
   replay();
@@ -468,21 +471,21 @@ function renderOnce(): void {
   const foldedMarkers: Vec2[] = [];
   let hoverFace = -1;
   let hoverInfo = '';
-  if (hoverFlat && sim.index) {
-    const fi = faceAtFlat(sim.index, hoverFlat);
+  if (hoverFlat && bundle) {
+    const fi = faceAtFlat(bundle.index, hoverFlat);
     if (fi >= 0) {
       hoverFace = fi;
       const p = apply(faces[fi].T, hoverFlat);
       foldedMarkers.push(p);
-      const col = facesAtFolded(sim.index, p);
+      const col = facesAtFolded(bundle.index, p);
       const pos = col.indexOf(fi);
       hoverInfo = `flat (${hoverFlat.x.toFixed(1)}, ${hoverFlat.y.toFixed(1)}) → bundle (${p.x.toFixed(1)}, ${p.y.toFixed(1)}), layer ${pos + 1} of ${col.length} from top`;
     }
   }
-  if (hoverFolded && sim.index) {
-    let col = facesAtFolded(sim.index, hoverFolded);
+  if (hoverFolded && bundle) {
+    let col = facesAtFolded(bundle.index, hoverFolded);
     if (view.flip) col = col.reverse();
-    for (const fi of col) flatMarkers.push(apply(sim.index.Tinv[fi], hoverFolded));
+    for (const fi of col) flatMarkers.push(apply(bundle.index.Tinv[fi], hoverFolded));
     if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
   }
 
@@ -517,7 +520,7 @@ function renderOnce(): void {
     }
   });
 
-  statusEl.textContent = `${faces.length} faces · up to ${sim.maxLayers} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
+  statusEl.textContent = `${faces.length} faces · up to ${bundle?.maxLayers ?? 0} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).
@@ -529,6 +532,7 @@ function renderOnce(): void {
   get gpu() { return gpu; },
   download: () => gpu?.download(),
   render: () => { dirty = true; renderOnce(); },
+  get bundle() { return bundle; },
   rebuild: rebuildGeometry,
   addFolds,
   addStroke,

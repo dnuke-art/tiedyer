@@ -1,11 +1,9 @@
-// Dye simulation on the folded cloth.
+// Dye simulation on a Bundle.
 //
 // The cloth is a flat texture of N x M texels. In-plane diffusion is a plain 2D
-// Laplacian on that texture (the cloth is continuous across creases). Layer contact
-// is a precomputed per-texel "up"/"down" neighbour: the texel of the face directly
-// above / below this one in the folded stack at the same folded position. Dye moves
-// across those links with coefficient dZ. This is Morimoto & Ono's 3D diffusion graph,
-// stored as a 2D texture plus two gather maps.
+// Laplacian on that texture (the cloth is continuous across creases). Contact with
+// other layers comes from the bundle's weighted contact graph. This is Morimoto &
+// Ono's 3D diffusion graph, stored as a 2D texture plus gather maps.
 //
 //   df/dt = div(D grad f) + supply - adsorption
 //   dh/dt = adsorption          (h = fixed dye, survives rinsing)
@@ -14,8 +12,7 @@
 // to 1 at pressRadius away. Press blocks dye supply, reduces capacity, and reduces
 // cross-layer transfer (no liquid in a squeezed gap).
 
-import { Vec2, apply, dist } from './geom';
-import { Face, indexFaces, FaceIndex, faceAtFlat, facesAtFolded } from './fold';
+import { Bundle, K } from './bundle';
 import { BandStamp, Stroke, SimParams, Plan } from './plan';
 
 export class Sim {
@@ -26,19 +23,8 @@ export class Sim {
   H = 0;
   nDyes = 0;
 
-  faces: Face[] = [];
-  index!: FaceIndex;
-
-  /** per texel */
-  faceId = new Int32Array(0);
-  fx = new Float32Array(0);
-  fy = new Float32Array(0);
-  up = new Int32Array(0);
-  down = new Int32Array(0);
-  depthTop = new Int32Array(0);
-  depthBot = new Int32Array(0);
+  bundle!: Bundle;
   press = new Float32Array(0);
-  maxLayers = 0;
 
   /** free (mobile) dye per dye species */
   f: Float32Array[] = [];
@@ -46,6 +32,9 @@ export class Sim {
   h: Float32Array[] = [];
   private tmp = new Float32Array(0);
   private hsum = new Float32Array(0);
+  private vol = new Float32Array(0);
+  private depth = new Int32Array(0);
+  private order = new Int32Array(0);
 
   /** simulation steps taken since last reset */
   t = 0;
@@ -62,16 +51,12 @@ export class Sim {
     this.M = Math.max(1, Math.round(plan.H / this.cell));
     this.nDyes = plan.dyes.length;
     const n = this.N * this.M;
-    this.faceId = new Int32Array(n);
-    this.fx = new Float32Array(n);
-    this.fy = new Float32Array(n);
-    this.up = new Int32Array(n);
-    this.down = new Int32Array(n);
-    this.depthTop = new Int32Array(n);
-    this.depthBot = new Int32Array(n);
     this.press = new Float32Array(n).fill(1);
     this.tmp = new Float32Array(n);
     this.hsum = new Float32Array(n);
+    this.vol = new Float32Array(n);
+    this.depth = new Int32Array(n);
+    this.order = new Int32Array(n);
     this.f = [];
     this.h = [];
     for (let k = 0; k < this.nDyes; k++) {
@@ -81,63 +66,28 @@ export class Sim {
     this.t = 0;
   }
 
-  texelCenter(i: number): Vec2 {
-    const x = i % this.N, y = Math.floor(i / this.N);
-    return { x: (x + 0.5) * this.cell, y: (y + 0.5) * this.cell };
+  dims(): { N: number; M: number; cell: number } {
+    return { N: this.N, M: this.M, cell: this.cell };
   }
 
-  texelAt(uv: Vec2): number {
-    const x = Math.min(this.N - 1, Math.max(0, Math.floor(uv.x / this.cell)));
-    const y = Math.min(this.M - 1, Math.max(0, Math.floor(uv.y / this.cell)));
-    return y * this.N + x;
+  setBundle(b: Bundle): void {
+    this.bundle = b;
   }
 
-  /** Rebuild folded positions and the layer-contact graph from a face set. */
-  rebuildGeometry(faces: Face[]): void {
-    this.faces = faces;
-    this.index = indexFaces(faces);
-    const idx = this.index;
-    const n = this.N * this.M;
-    let maxLayers = 0;
-    for (let i = 0; i < n; i++) {
-      const uv = this.texelCenter(i);
-      const fi = faceAtFlat(idx, uv, this.cell * 1e-3);
-      this.faceId[i] = fi;
-      if (fi < 0) {
-        this.fx[i] = uv.x; this.fy[i] = uv.y;
-        this.up[i] = -1; this.down[i] = -1;
-        this.depthTop[i] = 0; this.depthBot[i] = 0;
-        continue;
-      }
-      const p = apply(faces[fi].T, uv);
-      this.fx[i] = p.x; this.fy[i] = p.y;
-      const column = facesAtFolded(idx, p, this.cell * 1e-3); // top first
-      let pos = column.indexOf(fi);
-      if (pos < 0) { column.push(fi); pos = column.length - 1; }
-      this.depthTop[i] = pos;
-      this.depthBot[i] = column.length - 1 - pos;
-      if (column.length > maxLayers) maxLayers = column.length;
-      this.up[i] = pos > 0 ? this.texelAt(apply(idx.Tinv[column[pos - 1]], p)) : -1;
-      this.down[i] = pos < column.length - 1 ? this.texelAt(apply(idx.Tinv[column[pos + 1]], p)) : -1;
-    }
-    this.maxLayers = maxLayers;
-  }
-
-  /** Press field from binding stamps (folded coords). */
+  /** Press field from binding stamps (bundle xy coords, all layers under the stamp). */
   rebuildPress(bands: BandStamp[], params: SimParams): void {
     const n = this.N * this.M;
     if (bands.length === 0) { this.press.fill(1); return; }
     const c = Math.max(1e-6, params.pressRadius);
     const floor = params.pressFloor;
+    const { px, py } = this.bundle;
     for (let i = 0; i < n; i++) {
-      const px = this.fx[i], py = this.fy[i];
       let dmin = Infinity;
       for (const b of bands) {
-        const d = Math.hypot(px - b.p.x, py - b.p.y) - b.r;
+        const d = Math.hypot(px[i] - b.p.x, py[i] - b.p.y) - b.r;
         if (d < dmin) dmin = d;
       }
-      const d = Math.max(0, dmin);
-      const P = Math.min(1, d / c);
+      const P = Math.min(1, Math.max(0, dmin) / c);
       this.press[i] = floor + (1 - floor) * P;
     }
   }
@@ -148,42 +98,62 @@ export class Sim {
   }
 
   /**
-   * Wicking. Liquid squirted on one surface fills the outermost layer's pores and the
-   * excess passes to the next layer, a saturation front. Each layer absorbs `press`
-   * worth of liquid (a squeezed layer holds less; a fully pressed one stops the front).
-   * Liquid arriving at an already-wet layer mixes into it rather than tunnelling past,
-   * so a second colour on the same spot blends with the first at the same depths.
-   *
-   * Every texel works out its own reach: the volume applied at its folded position
-   * minus what the layers between it and the surface absorb, walking the true column
-   * at its own position (mirrored layers have texel grids offset by half a texel, so
-   * chaining through neighbours would drift).
-   * `volumeAt(i)` returns the liquid volume (in layer-fills) applied above texel i.
+   * Wicking. Liquid poured onto exposed texels fills their pores and the excess
+   * passes along the contact graph to the next layer, a saturation front. Each
+   * texel absorbs `press` worth of liquid (a squeezed layer holds less, a fully
+   * pressed one blocks). Excess is split among contacts one hop further from the
+   * surface, by contact weight. Liquid arriving at an already-wet texel mixes in.
+   * `volumeAt(i)` gives the liquid volume (in layer-fills) poured on entry texel i.
    */
   private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number): void {
-    const n = this.N * this.M;
-    const eps = this.cell * 1e-3;
+    const b = this.bundle, n = b.n;
+    const surface = fromTop ? b.surfaceTop : b.surfaceBot;
+    const vol = this.vol, depth = this.depth, order = this.order;
+    vol.fill(0);
+    depth.fill(-1);
+    let head = 0, tail = 0;
     for (let i = 0; i < n; i++) {
-      if (this.faceId[i] < 0) continue;
-      const vol = volumeAt(i);
-      if (vol <= 0) continue;
-      const pi = this.press[i];
-      if (pi <= 0.05) continue;
-      const p = { x: this.fx[i], y: this.fy[i] };
-      const col = facesAtFolded(this.index, p, eps); // top first
-      const pos = col.indexOf(this.faceId[i]);
-      if (pos < 0) continue;
-      let rem = vol, blocked = false;
-      const from = fromTop ? 0 : pos + 1;
-      const to = fromTop ? pos : col.length;
-      for (let c = from; c < to && rem > 0; c++) {
-        const t = this.texelAt(apply(this.index.Tinv[col[c]], p));
-        const pt = this.press[t];
-        if (pt <= 0.05) { blocked = true; break; }
-        rem -= pt;
+      if (!b.valid[i] || !surface[i]) continue;
+      const v = volumeAt(i);
+      if (v <= 0) continue;
+      vol[i] = v;
+      depth[i] = 0;
+      order[tail++] = i;
+    }
+    // BFS assigns each reachable texel its hop distance from the poured surface
+    while (head < tail) {
+      const i = order[head++];
+      const d = depth[i] + 1;
+      for (let k = 0; k < K; k++) {
+        const j = b.contacts[i * K + k];
+        if (j < 0) break;
+        if (depth[j] < 0) { depth[j] = d; order[tail++] = j; }
       }
-      if (blocked || rem <= 0) continue;
-      f[i] += Math.min(rem, pi) * conc;
+    }
+    // flow in BFS order: absorb, pass the excess one hop deeper
+    for (let q = 0; q < tail; q++) {
+      const i = order[q];
+      const v = vol[i];
+      if (v <= 0) continue;
+      const pi = this.press[i];
+      if (pi <= 0.05) continue; // squeezed shut: absorbs nothing, passes nothing
+      const a = Math.min(v, pi);
+      f[i] += a * conc;
+      const excess = v - a;
+      if (excess <= 0) continue;
+      let wsum = 0;
+      const d = depth[i] + 1;
+      for (let k = 0; k < K; k++) {
+        const j = b.contacts[i * K + k];
+        if (j < 0) break;
+        if (depth[j] === d) wsum += b.weights[i * K + k];
+      }
+      if (wsum <= 0) continue;
+      for (let k = 0; k < K; k++) {
+        const j = b.contacts[i * K + k];
+        if (j < 0) break;
+        if (depth[j] === d) vol[j] += excess * b.weights[i * K + k] / wsum;
+      }
     }
   }
 
@@ -200,20 +170,22 @@ export class Sim {
     // tail out to 2r standing in for lateral wicking. Deep layers only get the core,
     // shallow layers the tail, so every layer's edge is a gradient, not a step.
     const r2 = s.r * s.r, cut = 4 * r2;
+    const { px, py } = this.bundle;
     const volumeAt = (i: number): number => {
-      const dx = this.fx[i] - s.p.x, dy = this.fy[i] - s.p.y;
+      const dx = px[i] - s.p.x, dy = py[i] - s.p.y;
       const d2 = dx * dx + dy * dy;
       return d2 > cut ? 0 : volume * Math.exp(-2 * d2 / r2);
     };
     this.wickPass(s.side === 'top', s.amount, f, volumeAt);
   }
 
-  /** One explicit Euler step. */
+  /** One explicit Euler step (CPU reference; the GPU path does the same). */
   step(params: SimParams): void {
     const N = this.N, M = this.M, n = N * M;
     const dP = params.dPlane, dZ = params.dZ;
     const dt = stableDt(params);
-    const up = this.up, down = this.down, press = this.press, faceId = this.faceId;
+    const b = this.bundle;
+    const press = this.press, valid = b.valid, contacts = b.contacts, weights = b.weights;
     const hsum = this.hsum;
     hsum.fill(0);
     for (let k = 0; k < this.nDyes; k++) {
@@ -222,21 +194,23 @@ export class Sim {
     }
     for (let k = 0; k < this.nDyes; k++) {
       const f = this.f[k], h = this.h[k], tmp = this.tmp;
-      // diffusion
       for (let y = 0; y < M; y++) {
         for (let x = 0; x < N; x++) {
           const i = y * N + x;
-          if (faceId[i] < 0) { tmp[i] = 0; continue; }
+          if (!valid[i]) { tmp[i] = 0; continue; }
           const fi = f[i];
           let lap = 0;
-          if (x > 0) lap += f[i - 1] - fi;
-          if (x < N - 1) lap += f[i + 1] - fi;
-          if (y > 0) lap += f[i - N] - fi;
-          if (y < M - 1) lap += f[i + N] - fi;
+          if (x > 0 && valid[i - 1]) lap += f[i - 1] - fi;
+          if (x < N - 1 && valid[i + 1]) lap += f[i + 1] - fi;
+          if (y > 0 && valid[i - N]) lap += f[i - N] - fi;
+          if (y < M - 1 && valid[i + N]) lap += f[i + N] - fi;
           lap *= dP;
-          const u = up[i], d = down[i];
-          if (u >= 0) lap += dZ * press[i] * (f[u] - fi);
-          if (d >= 0) lap += dZ * press[i] * (f[d] - fi);
+          const pz = dZ * press[i];
+          for (let c = 0; c < K; c++) {
+            const j = contacts[i * K + c];
+            if (j < 0) break;
+            lap += pz * weights[i * K + c] * (f[j] - fi);
+          }
           tmp[i] = fi + dt * lap;
         }
       }
@@ -259,19 +233,9 @@ export class Sim {
     }
     this.t++;
   }
-
-  /** Total dye (free + fixed) per texel for one species, used for display. */
-  totalAt(k: number, i: number, fixedOnly: boolean): number {
-    return this.h[k][i] + (fixedOnly ? 0 : this.f[k][i]);
-  }
-
-  /** Distance helper for UI hit tests in folded space. */
-  static near(a: Vec2, b: Vec2, r: number): boolean {
-    return dist(a, b) <= r;
-  }
 }
 
-/** Explicit-Euler stability: dt * (4 dPlane + 2 dZ) must stay below 1. */
+/** Explicit-Euler stability: dt * (4 dPlane + 2 dZ) must stay below 1 (contact weights sum to ≤ 2). */
 export function stableDt(params: SimParams): number {
   return Math.min(0.5, 0.95 / (4 * params.dPlane + 2 * params.dZ + 1e-6));
 }
