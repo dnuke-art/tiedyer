@@ -329,7 +329,7 @@ function stampAt(p: Vec2): void {
 // ---------------------------------------------------------------------------
 // Mouse
 
-foldedCanvas.addEventListener('mousemove', (ev) => {
+foldedCanvas.addEventListener('pointermove', (ev) => {
   hoverFolded = renderer.foldedToCm(ev);
   if (dragging && (tool === 'dye' || tool === 'band')) {
     if (!lastStamp || dist(lastStamp, hoverFolded) >= brush.r * 0.35) {
@@ -338,9 +338,10 @@ foldedCanvas.addEventListener('mousemove', (ev) => {
     }
   }
 });
-foldedCanvas.addEventListener('mouseleave', () => { hoverFolded = null; });
-foldedCanvas.addEventListener('mousedown', (ev) => {
+foldedCanvas.addEventListener('pointerleave', () => { hoverFolded = null; });
+foldedCanvas.addEventListener('pointerdown', (ev) => {
   if (ev.button !== 0) return;
+  hoverFolded = renderer.foldedToCm(ev);
   const p = renderer.foldedToCm(ev);
   if (tool === 'dye' || tool === 'band') {
     dragging = true;
@@ -359,7 +360,7 @@ foldedCanvas.addEventListener('mousedown', (ev) => {
     }
   }
 });
-window.addEventListener('mouseup', () => {
+window.addEventListener('pointerup', () => {
   if (dragging) {
     dragging = false;
     lastStamp = null;
@@ -369,8 +370,14 @@ window.addEventListener('mouseup', () => {
     }
   }
 });
-flatCanvas.addEventListener('mousemove', (ev) => { hoverFlat = renderer.flatToCm(ev); });
-flatCanvas.addEventListener('mouseleave', () => { hoverFlat = null; });
+flatCanvas.addEventListener('pointermove', (ev) => { hoverFlat = renderer.flatToCm(ev); });
+flatCanvas.addEventListener('pointerdown', (ev) => { hoverFlat = renderer.flatToCm(ev); });
+flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
+
+// mobile controls drawer
+const appEl = document.getElementById('app')!;
+document.getElementById('menu-btn')!.addEventListener('click', () => appEl.classList.toggle('menu-open'));
+document.getElementById('backdrop')!.addEventListener('click', () => appEl.classList.remove('menu-open'));
 
 window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;
