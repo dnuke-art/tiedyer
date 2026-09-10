@@ -4,6 +4,7 @@ import { Vec2, Mat, mul, apply, invert, translation, scaling, BBox } from './geo
 import { Face, foldedBBox, facesAtFolded, faceAtFlat } from './fold';
 import { Sim } from './sim';
 import { DyeDef, BandStamp } from './plan';
+import { Cloth } from './cloth';
 
 export interface ViewOpts {
   fixedOnly: boolean;
@@ -241,6 +242,70 @@ export class Renderer {
         ctx.fillText(String(i + 1), q.x + r + 2, q.y - r);
       }
     });
+  }
+
+  private sampleCanvas: HTMLCanvasElement | null = null;
+
+  /** current texel colours (RGBA bytes, N x M) from whatever source is being drawn */
+  textureColors(N: number, M: number): Uint8ClampedArray {
+    if (!this.sampleCanvas) this.sampleCanvas = document.createElement('canvas');
+    const c = this.sampleCanvas;
+    if (c.width !== N || c.height !== M) { c.width = N; c.height = M; }
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.clearRect(0, 0, N, M);
+    ctx.drawImage(this.src, 0, 0);
+    return ctx.getImageData(0, 0, N, M).data;
+  }
+
+  /**
+   * Top-down view of a particle cloth. Each particle is a disc coloured by its
+   * texel (or white while the cloth is still being manipulated), painter-sorted by
+   * height and lightly shaded by height so pleats read as relief.
+   */
+  drawCloth(cloth: Cloth, colors: Uint8ClampedArray | null, bands: BandStamp[], opts: ViewOpts, markers: Vec2[], overlay?: (ctx: CanvasRenderingContext2D, V: Mat) => void): void {
+    const c = this.folded;
+    Renderer.fit(c, this.dpr);
+    const ctx = c.getContext('2d')!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    const n = cloth.n;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < n; i++) {
+      if (cloth.x[i] < minX) minX = cloth.x[i]; if (cloth.x[i] > maxX) maxX = cloth.x[i];
+      if (cloth.y[i] < minY) minY = cloth.y[i]; if (cloth.y[i] > maxY) maxY = cloth.y[i];
+      if (cloth.z[i] < minZ) minZ = cloth.z[i]; if (cloth.z[i] > maxZ) maxZ = cloth.z[i];
+    }
+    const pad = 12 * this.dpr;
+    this.foldedView = fitTransform({ minX, minY, maxX, maxY }, c.width, c.height, pad, opts.flip);
+    const V = this.foldedView;
+    const s = Math.hypot(V.a, V.b);
+    const order = new Int32Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    const zs = cloth.z;
+    order.sort((a, b) => (opts.flip ? zs[b] - zs[a] : zs[a] - zs[b]));
+    const r = Math.max(1, 0.62 * cloth.h * s);
+    const zr = Math.max(1e-6, maxZ - minZ);
+    for (let k = 0; k < n; k++) {
+      const i = order[k];
+      const q = apply(V, { x: cloth.x[i], y: cloth.y[i] });
+      const t = (zs[i] - minZ) / zr;
+      const shade = opts.flip ? 0.75 + 0.25 * (1 - t) : 0.75 + 0.25 * t;
+      let cr = 255, cg = 255, cb = 255;
+      if (colors) { cr = colors[i * 4]; cg = colors[i * 4 + 1]; cb = colors[i * 4 + 2]; }
+      ctx.fillStyle = `rgb(${cr * shade | 0},${cg * shade | 0},${cb * shade | 0})`;
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const b of bands) {
+      const q = apply(V, b.p);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, b.r * s, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(60,60,60,0.45)';
+      ctx.fill();
+    }
+    if (overlay) overlay(ctx, V);
+    this.drawMarkers(ctx, markers.map((m) => apply(V, m)));
   }
 
   /** canvas px (client coords) -> cm in that view */

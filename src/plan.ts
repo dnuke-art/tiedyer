@@ -5,6 +5,7 @@
 
 import { Vec2 } from './geom';
 import { FoldLine, initialFaces, applyFold, accordionFolds, zigzagFolds, foldedBBox } from './fold';
+import { TwistParams, DEFAULT_TWIST } from './cloth';
 
 export interface DyeDef { name: string; color: string }
 
@@ -33,12 +34,16 @@ export interface SimParams {
   pressFloor: number;
 }
 
+export type Mode = 'fold' | 'twist';
+
 export interface Plan {
   W: number;
   H: number;
-  /** texels along W */
+  /** texels along W (particles along W in twist mode) */
   N: number;
+  mode: Mode;
   folds: FoldLine[];
+  twist: TwistParams;
   bands: BandStamp[];
   strokes: Stroke[];
   dyes: DyeDef[];
@@ -66,7 +71,9 @@ export function defaultPlan(): Plan {
     W: 60,
     H: 60,
     N: 240,
+    mode: 'fold',
     folds: [],
+    twist: { ...DEFAULT_TWIST, c: { x: 30, y: 30 } },
     bands: [],
     strokes: [],
     dyes: DEFAULT_DYES.map((d) => ({ ...d })),
@@ -108,7 +115,9 @@ export function parsePlan(json: string): Plan {
     W: p.W ?? base.W,
     H: p.H ?? base.H,
     N: p.N ?? base.N,
+    mode: p.mode ?? 'fold',
     folds: p.folds ?? [],
+    twist: { ...base.twist, ...(p.twist ?? {}) },
     bands: p.bands ?? [],
     strokes: p.strokes ?? [],
     dyes: p.dyes ?? base.dyes,

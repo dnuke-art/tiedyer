@@ -66,6 +66,16 @@ export class Sim {
     this.t = 0;
   }
 
+  texelCenter(i: number): { x: number; y: number } {
+    return { x: ((i % this.N) + 0.5) * this.cell, y: (Math.floor(i / this.N) + 0.5) * this.cell };
+  }
+
+  texelAt(uv: { x: number; y: number }): number {
+    const x = Math.min(this.N - 1, Math.max(0, Math.floor(uv.x / this.cell)));
+    const y = Math.min(this.M - 1, Math.max(0, Math.floor(uv.y / this.cell)));
+    return y * this.N + x;
+  }
+
   dims(): { N: number; M: number; cell: number } {
     return { N: this.N, M: this.M, cell: this.cell };
   }

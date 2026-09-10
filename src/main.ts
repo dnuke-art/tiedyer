@@ -1,8 +1,9 @@
 import './style.css';
-import { Vec2, apply, side, normalize, dist } from './geom';
+import { Vec2, Mat, apply, side, normalize, dist } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
-import { Plan, Stroke, defaultPlan, demoPlan, serializePlan, parsePlan } from './plan';
+import { runTwist, Cloth, ClothBundle } from './cloth';
+import { Plan, Stroke, Mode, defaultPlan, demoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
 import { GpuSolver } from './gpu';
@@ -23,8 +24,15 @@ const saved = loadAutosave();
 let plan: Plan = saved ?? demoPlan();
 const DEMO_STEPS = 150;
 let faces: Face[] = [];
-let bundle: FlatFoldBundle | null = null;
+let bundle: FlatFoldBundle | ClothBundle | null = null;
+/** cloth being manipulated while a twist run is in progress */
+let liveCloth: Cloth | null = null;
+let twistRun = 0;
+let twistStatus = '';
 const sim = new Sim(plan);
+
+function isFold(b: FlatFoldBundle | ClothBundle | null): b is FlatFoldBundle { return !!b && 'faces' in b; }
+function isCloth(b: FlatFoldBundle | ClothBundle | null): b is ClothBundle { return !!b && 'cloth' in b; }
 
 const flatCanvas = document.getElementById('flat') as HTMLCanvasElement;
 const foldedCanvas = document.getElementById('folded') as HTMLCanvasElement;
@@ -41,7 +49,7 @@ try {
 
 const view: ViewOpts = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false };
 
-type Tool = 'inspect' | 'dye' | 'band' | 'fold';
+type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre';
 let tool: Tool = 'dye';
 const brush = { r: 3, amount: 0.8, pen: 10, dye: 0 };
 let playing = false;
@@ -87,14 +95,48 @@ function doSteps(n: number): void {
 }
 
 function rebuildGeometry(): void {
+  if (plan.mode === 'twist') { void rebuildTwist(); return; }
+  twistRun++; liveCloth = null; twistStatus = '';
   faces = buildFaces(plan.W, plan.H, plan.folds);
   bundle = flatFoldBundle(sim.dims(), faces);
-  sim.setBundle(bundle);
+  finishGeometry();
+  refreshFoldList();
+}
+
+function finishGeometry(): void {
+  sim.setBundle(bundle!);
   sim.rebuildPress(plan.bands, plan.params);
   gpu?.uploadStatic();
   replay();
-  refreshFoldList();
   touched();
+}
+
+async function rebuildTwist(): Promise<void> {
+  const run = ++twistRun;
+  faces = [];
+  bundle = null;
+  const d = sim.dims();
+  const result = await runTwist(plan.W, plan.H, plan.N, plan.twist, (phase, frac, cloth) => {
+    if (run !== twistRun) return;
+    liveCloth = cloth;
+    twistStatus = `${phase} ${(frac * 100).toFixed(0)}%`;
+    dirty = true;
+  }, d);
+  if (run !== twistRun) return; // superseded
+  liveCloth = null;
+  twistStatus = '';
+  bundle = result;
+  finishGeometry();
+  dirty = true;
+}
+
+function setMode(m: Mode): void {
+  if (plan.mode === m) return;
+  plan.mode = m;
+  if (m === 'twist' && plan.N > 161) plan.N = 101;
+  if (m === 'fold' && plan.N < 120) plan.N = 240;
+  refreshModeUI();
+  reconfigure();
 }
 
 function reconfigure(): void {
@@ -173,7 +215,18 @@ const HINTS: Record<Tool, string> = {
   dye: 'drag to squirt dye on the side you are viewing',
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
+  centre: 'click the flat cloth where you pinch',
 };
+let foldControls: HTMLElement;
+let twistControls: HTMLElement;
+let modeButtons: Record<Mode, HTMLButtonElement>;
+let resRow: HTMLElement;
+function refreshModeUI(): void {
+  foldControls.hidden = plan.mode !== 'fold';
+  twistControls.hidden = plan.mode !== 'twist';
+  resRow.hidden = plan.mode !== 'fold';
+  for (const [k, b] of Object.entries(modeButtons)) b.classList.toggle('on', k === plan.mode);
+}
 
 function setTool(t: Tool): void {
   tool = t;
@@ -216,6 +269,37 @@ function buildSidebar(): void {
   ) as HTMLSelectElement;
   const resSel = el('select', {}, ...[120, 180, 240, 320, 400, 480, 640, 800].map((n) => el('option', { value: n }, `${n} texels`))) as HTMLSelectElement;
   resSel.value = String(plan.N);
+  const partSel = el('select', {}, ...[61, 81, 101, 121, 161].map((n) => el('option', { value: n }, `${n}² particles`))) as HTMLSelectElement;
+  partSel.value = String([61, 81, 101, 121, 161].includes(plan.N) ? plan.N : 101);
+  partSel.addEventListener('change', () => { plan.N = parseInt(partSel.value); reconfigure(); });
+  const cx = numberInput(() => plan.twist.c.x, (v) => { plan.twist.c.x = v; touched(); }, { min: 0, max: 300, step: 0.5 });
+  const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
+  const refreshCentre = () => { cx.value = String(plan.twist.c.x); cy.value = String(plan.twist.c.y); };
+  toolButtons.centre = btn('Pick', () => setTool('centre'));
+  modeButtons = { fold: btn('Fold', () => setMode('fold')), twist: btn('Twist', () => setMode('twist')) };
+  resRow = row(el('label', {}, 'resolution'), resSel);
+  foldControls = el('div', {},
+      row(btn('Accordion X', () => addFoldsSequential((f) => accordionFolds(f, 'x', parseInt(pleats.value)))),
+        btn('Accordion Y', () => addFoldsSequential((f) => accordionFolds(f, 'y', parseInt(pleats.value)))),
+        el('label', {}, 'pleats'), pleats),
+      row(el('label', {}, 'zigzag'), zigAxis, zigStyle,
+        btn('Fold', () => addFoldsSequential((f) => zigzagFolds(f, zigAxis.value as Axis, zigStyle.value as 'equilateral' | 'right' | 'square')))),
+      row(btn('Diagonal ╲', () => addFoldsSequential((f) => [diagonalFold(f, 'main')])),
+        btn('Diagonal ╱', () => addFoldsSequential((f) => [diagonalFold(f, 'anti')])),
+        toolButtons.fold),
+      row(btn('Undo fold', () => { plan.folds.pop(); rebuildGeometry(); }),
+        btn('Clear folds', () => { plan.folds = []; rebuildGeometry(); })),
+      foldList);
+  twistControls = el('div', {},
+      row(el('label', {}, 'particles'), partSel),
+      row(el('label', {}, 'pinch at'), cx, '×', cy, toolButtons.centre),
+      slider('turns', 0.5, 6, 0.25, () => plan.twist.turns, (v) => { plan.twist.turns = v; touched(); }),
+      slider('pinch cm', 0.5, 5, 0.25, () => plan.twist.pinch, (v) => { plan.twist.pinch = v; touched(); }),
+      slider('friction', 0, 0.2, 0.005, () => plan.twist.friction, (v) => { plan.twist.friction = v; touched(); }, (v) => v.toFixed(3)),
+      slider('pat flat cm', 0, 6, 0.25, () => plan.twist.flatten, (v) => { plan.twist.flatten = v; touched(); }),
+      row(btn('Run twist', () => { void rebuildTwist(); })),
+      el('div', { class: 'note' }, 'Pinch the centre, twist, release, pat flat. A particle cloth on a table with self-collision; the core grows as fabric wraps onto it. Runs a few seconds.'));
+  (window as unknown as { refreshCentre: () => void }).refreshCentre = refreshCentre;
 
   toolButtons.inspect = btn('Inspect', () => setTool('inspect'));
   toolButtons.dye = btn('Dye', () => setTool('dye'));
@@ -239,22 +323,14 @@ function buildSidebar(): void {
         numberInput(() => plan.W, (v) => { plan.W = v; reconfigure(); }, { min: 5, max: 300, step: 1 }),
         '×',
         numberInput(() => plan.H, (v) => { plan.H = v; reconfigure(); }, { min: 5, max: 300, step: 1 })),
-      row(el('label', {}, 'resolution'), resSel),
+      resRow,
       el('div', { class: 'note' }, 'Changing the size keeps the fold list but the lines may no longer land where you meant.'),
     ),
     el('details', { open: true },
-      el('summary', {}, 'Folds'),
-      row(btn('Accordion X', () => addFoldsSequential((f) => accordionFolds(f, 'x', parseInt(pleats.value)))),
-        btn('Accordion Y', () => addFoldsSequential((f) => accordionFolds(f, 'y', parseInt(pleats.value)))),
-        el('label', {}, 'pleats'), pleats),
-      row(el('label', {}, 'zigzag'), zigAxis, zigStyle,
-        btn('Fold', () => addFoldsSequential((f) => zigzagFolds(f, zigAxis.value as Axis, zigStyle.value as 'equilateral' | 'right' | 'square')))),
-      row(btn('Diagonal ╲', () => addFoldsSequential((f) => [diagonalFold(f, 'main')])),
-        btn('Diagonal ╱', () => addFoldsSequential((f) => [diagonalFold(f, 'anti')])),
-        toolButtons.fold),
-      row(btn('Undo fold', () => { plan.folds.pop(); rebuildGeometry(); }),
-        btn('Clear folds', () => { plan.folds = []; rebuildGeometry(); })),
-      foldList,
+      el('summary', {}, 'Shape'),
+      el('div', { class: 'row tools' }, modeButtons.fold, modeButtons.twist),
+      foldControls,
+      twistControls,
     ),
     el('details', { open: true },
       el('summary', {}, 'Dye & bindings'),
@@ -295,6 +371,7 @@ function buildSidebar(): void {
   );
   resSel.addEventListener('change', () => { plan.N = parseInt(resSel.value); reconfigure(); });
   refreshSwatches();
+  refreshModeUI();
   setTool('dye');
 }
 
@@ -375,7 +452,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     dragging = true;
     lastStamp = p;
     stampAt(p);
-  } else if (tool === 'fold') {
+  } else if (tool === 'fold' && plan.mode === 'fold') {
     if (foldDraft.length < 2) {
       foldDraft.push(p);
     } else {
@@ -399,7 +476,16 @@ window.addEventListener('pointerup', () => {
   }
 });
 flatCanvas.addEventListener('pointermove', (ev) => { hoverFlat = renderer.flatToCm(ev); });
-flatCanvas.addEventListener('pointerdown', (ev) => { ev.preventDefault(); hoverFlat = renderer.flatToCm(ev); });
+flatCanvas.addEventListener('pointerdown', (ev) => {
+  ev.preventDefault();
+  hoverFlat = renderer.flatToCm(ev);
+  if (tool === 'centre' && plan.mode === 'twist') {
+    plan.twist.c = { x: Math.round(hoverFlat.x * 2) / 2, y: Math.round(hoverFlat.y * 2) / 2 };
+    (window as unknown as { refreshCentre: () => void }).refreshCentre();
+    touched();
+    dirty = true;
+  }
+});
 flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
 
 // mobile controls drawer
@@ -471,7 +557,7 @@ function renderOnce(): void {
   const foldedMarkers: Vec2[] = [];
   let hoverFace = -1;
   let hoverInfo = '';
-  if (hoverFlat && bundle) {
+  if (hoverFlat && isFold(bundle)) {
     const fi = faceAtFlat(bundle.index, hoverFlat);
     if (fi >= 0) {
       hoverFace = fi;
@@ -481,16 +567,36 @@ function renderOnce(): void {
       const pos = col.indexOf(fi);
       hoverInfo = `flat (${hoverFlat.x.toFixed(1)}, ${hoverFlat.y.toFixed(1)}) → bundle (${p.x.toFixed(1)}, ${p.y.toFixed(1)}), layer ${pos + 1} of ${col.length} from top`;
     }
+  } else if (hoverFlat && isCloth(bundle)) {
+    if (hoverFlat.x >= 0 && hoverFlat.y >= 0 && hoverFlat.x < sim.W && hoverFlat.y < sim.H) {
+      const i = sim.texelAt(hoverFlat);
+      const p = { x: bundle.px[i], y: bundle.py[i] };
+      foldedMarkers.push(p);
+      const col = bundle.column(p);
+      const pos = col.indexOf(i);
+      hoverInfo = `flat (${hoverFlat.x.toFixed(1)}, ${hoverFlat.y.toFixed(1)}) → bundle (${p.x.toFixed(1)}, ${p.y.toFixed(1)}), height ${bundle.pz[i].toFixed(2)} cm, layer ${pos + 1} of ${col.length} from top`;
+    }
   }
-  if (hoverFolded && bundle) {
+  if (hoverFolded && isFold(bundle)) {
     let col = facesAtFolded(bundle.index, hoverFolded);
     if (view.flip) col = col.reverse();
     for (const fi of col) flatMarkers.push(apply(bundle.index.Tinv[fi], hoverFolded));
     if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
+  } else if (hoverFolded && isCloth(bundle)) {
+    let col = bundle.column(hoverFolded);
+    if (view.flip) col = col.reverse();
+    for (const i of col) flatMarkers.push(sim.texelCenter(i));
+    if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
   }
 
   renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
-  renderer.drawFolded(sim, faces, plan.bands, view, foldedMarkers, (ctx, V) => {
+  if (plan.mode === 'twist' && tool === 'centre') {
+    const ctx = flatCanvas.getContext('2d')!;
+    const q = apply(renderer.flatView, plan.twist.c);
+    ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 2 * renderer.dpr;
+    ctx.beginPath(); ctx.arc(q.x, q.y, plan.twist.pinch * Math.hypot(renderer.flatView.a, renderer.flatView.b), 0, Math.PI * 2); ctx.stroke();
+  }
+  const overlay = (ctx: CanvasRenderingContext2D, V: Mat) => {
     const s = renderer.foldedScale();
     if ((tool === 'dye' || tool === 'band') && hoverFolded) {
       const q = apply(V, hoverFolded);
@@ -518,9 +624,18 @@ function renderOnce(): void {
         ctx.setLineDash([]);
       }
     }
-  });
+  };
+  if (plan.mode === 'twist') {
+    const cloth = liveCloth ?? (isCloth(bundle) ? bundle.cloth : null);
+    if (cloth) renderer.drawCloth(cloth, liveCloth ? null : renderer.textureColors(sim.N, sim.M), plan.bands, view, foldedMarkers, overlay);
+  } else {
+    renderer.drawFolded(sim, faces, plan.bands, view, foldedMarkers, overlay);
+  }
 
-  statusEl.textContent = `${faces.length} faces · up to ${bundle?.maxLayers ?? 0} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
+  const shape = plan.mode === 'twist'
+    ? (twistStatus ? `twisting: ${twistStatus}` : `twist ${plan.twist.turns} turns · ${sim.N}×${sim.M} particles`)
+    : `${faces.length} faces · up to ${isFold(bundle) ? bundle.maxLayers : 0} layers · ${sim.N}×${sim.M} texels`;
+  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).

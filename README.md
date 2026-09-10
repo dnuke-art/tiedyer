@@ -81,3 +81,14 @@ Spirals, scrunch and crumple (need a particle cloth, not origami). Inverse desig
 Wrinkles, curved folds, weave anisotropy, wicking/evaporation.
 
 See `BRIEF.md` for the kickoff brief and prior-art links.
+
+## Headless testing
+
+`tools/shot.mjs` drives the dev server in Playwright's cached Chromium (SwiftShader, so
+the WebGL2 solver runs) and takes a screenshot. It evaluates an optional script file in
+the page with the `window.tiedyer` handle available:
+
+```
+npm run dev &
+node tools/shot.mjs tools/examples-twist.js out.png
+```
