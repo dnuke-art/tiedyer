@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tiedyer</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="side"></aside>
+      <main>
+        <div class="views">
+          <section class="view">
+            <h2>Flat cloth <span class="hint">hover to locate on the bundle</span></h2>
+            <canvas id="flat"></canvas>
+          </section>
+          <section class="view">
+            <h2>Folded bundle <span class="hint" id="tool-hint"></span></h2>
+            <canvas id="folded"></canvas>
+          </section>
+        </div>
+        <div id="status"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
