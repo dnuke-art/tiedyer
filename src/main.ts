@@ -4,6 +4,7 @@ import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, 
 import { Plan, Stroke, defaultPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { Renderer, ViewOpts } from './render';
+import { GpuSolver } from './gpu';
 
 // ---------------------------------------------------------------------------
 // State
@@ -26,6 +27,14 @@ const foldedCanvas = document.getElementById('folded') as HTMLCanvasElement;
 const renderer = new Renderer(flatCanvas, foldedCanvas);
 renderer.dpr = window.devicePixelRatio || 1;
 
+let gpu: GpuSolver | null = null;
+try {
+  if (GpuSolver.supported()) gpu = new GpuSolver(sim);
+} catch (e) {
+  console.warn('GPU solver unavailable, using CPU', e);
+  gpu = null;
+}
+
 const view: ViewOpts = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false };
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold';
@@ -33,6 +42,7 @@ let tool: Tool = 'dye';
 const brush = { r: 3, amount: 0.8, pen: 1.5, dye: 0 };
 let playing = false;
 const budgetMs = 8;
+let stepsPerFrame = 20;
 
 let foldDraft: Vec2[] = [];
 let hoverFolded: Vec2 | null = null;
@@ -52,12 +62,26 @@ function touched(): void {
 function replay(): void {
   sim.resetDye();
   for (const s of plan.strokes) sim.applyStroke(s, plan.params);
+  gpu?.upload();
+}
+
+function pressChanged(): void {
+  sim.rebuildPress(plan.bands, plan.params);
+  gpu?.uploadStatic();
+  replay();
+  touched();
+}
+
+function doSteps(n: number): void {
+  if (gpu) gpu.step(plan.params, n);
+  else for (let i = 0; i < n; i++) sim.step(plan.params);
 }
 
 function rebuildGeometry(): void {
   faces = buildFaces(plan.W, plan.H, plan.folds);
   sim.rebuildGeometry(faces);
   sim.rebuildPress(plan.bands, plan.params);
+  gpu?.uploadStatic();
   replay();
   refreshFoldList();
   touched();
@@ -65,6 +89,7 @@ function rebuildGeometry(): void {
 
 function reconfigure(): void {
   sim.configure(plan);
+  gpu?.resize();
   rebuildGeometry();
 }
 
@@ -168,7 +193,7 @@ function buildSidebar(): void {
     el('option', { value: 'right' }, 'right 45°'),
     el('option', { value: 'square' }, 'squares'),
   ) as HTMLSelectElement;
-  const resSel = el('select', {}, ...[120, 180, 240, 320, 400].map((n) => el('option', { value: n }, `${n} texels`))) as HTMLSelectElement;
+  const resSel = el('select', {}, ...[120, 180, 240, 320, 400, 480, 640, 800].map((n) => el('option', { value: n }, `${n} texels`))) as HTMLSelectElement;
   resSel.value = String(plan.N);
 
   toolButtons.inspect = btn('Inspect', () => setTool('inspect'));
@@ -219,19 +244,20 @@ function buildSidebar(): void {
       row(btn('Dip whole bundle', () => { addStroke({ kind: 'dip', dye: brush.dye, amount: brush.amount, pen: brush.pen }); }),
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
-        btn('Clear bands', () => { plan.bands = []; sim.rebuildPress(plan.bands, plan.params); replay(); touched(); })),
+        btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
       el('div', { class: 'note' }, 'Soak = how many layers the squirt penetrates (e-folding depth). Bands and clamps block dye and squeeze the layers.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
-      row(playBtn, btn('Step ×20', () => { for (let i = 0; i < 20; i++) sim.step(plan.params); }),
+      row(playBtn, btn('Step ×20', () => doSteps(20)),
         btn('Rewind', () => { replay(); }), el('label', {}, 't'), stepCounter),
+      slider('speed', 1, 200, 1, () => stepsPerFrame, (v) => { stepsPerFrame = v; }, (v) => `${v}/f`),
       slider('spread', 0, 0.22, 0.005, () => plan.params.dPlane, (v) => { plan.params.dPlane = v; touched(); }, (v) => v.toFixed(3)),
       slider('thru layers', 0, 0.3, 0.005, () => plan.params.dZ, (v) => { plan.params.dZ = v; touched(); }, (v) => v.toFixed(3)),
       slider('fixing rate', 0, 0.2, 0.002, () => plan.params.adsorb, (v) => { plan.params.adsorb = v; touched(); }, (v) => v.toFixed(3)),
       slider('capacity', 0.1, 3, 0.05, () => plan.params.capacity, (v) => { plan.params.capacity = v; touched(); }),
-      slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; sim.rebuildPress(plan.bands, plan.params); replay(); touched(); }, (v) => v.toFixed(1)),
-      slider('band leak', 0, 1, 0.02, () => plan.params.pressFloor, (v) => { plan.params.pressFloor = v; sim.rebuildPress(plan.bands, plan.params); replay(); touched(); }),
+      slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; pressChanged(); }, (v) => v.toFixed(1)),
+      slider('band leak', 0, 1, 0.02, () => plan.params.pressFloor, (v) => { plan.params.pressFloor = v; pressChanged(); }),
       el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye.'),
     ),
     el('details', { open: true },
@@ -278,7 +304,9 @@ function loadPlanFile(): void {
 
 function addStroke(s: Stroke): void {
   plan.strokes.push(s);
+  gpu?.download();
   sim.applyStroke(s, plan.params);
+  gpu?.upload();
   touched();
 }
 
@@ -334,9 +362,7 @@ window.addEventListener('mouseup', () => {
     lastStamp = null;
     if (bandsDirty) {
       bandsDirty = false;
-      sim.rebuildPress(plan.bands, plan.params);
-      replay();
-      touched();
+      pressChanged();
     }
   }
 });
@@ -357,16 +383,24 @@ const statusEl = document.getElementById('status')!;
 
 function frame(): void {
   if (playing) {
-    const t0 = performance.now();
-    let n = 0;
-    while (performance.now() - t0 < budgetMs && n < 64) { sim.step(plan.params); n++; }
+    if (gpu) gpu.step(plan.params, stepsPerFrame);
+    else {
+      const t0 = performance.now();
+      let n = 0;
+      while (performance.now() - t0 < budgetMs && n < stepsPerFrame) { sim.step(plan.params); n++; }
+    }
   }
   renderOnce();
   requestAnimationFrame(frame);
 }
 
 function renderOnce(): void {
-  renderer.updateTexture(sim, plan.dyes, view);
+  if (gpu) {
+    gpu.draw(plan.dyes, view);
+    renderer.src = gpu.canvas;
+  } else {
+    renderer.updateTexture(sim, plan.dyes, view);
+  }
 
   // picking
   const flatMarkers: Vec2[] = [];
@@ -422,7 +456,7 @@ function renderOnce(): void {
     }
   });
 
-  statusEl.textContent = `${faces.length} faces · up to ${sim.maxLayers} layers · ${sim.N}×${sim.M} texels · t=${sim.t}` + (hoverInfo ? `\n${hoverInfo}` : '\n');
+  statusEl.textContent = `${faces.length} faces · up to ${sim.maxLayers} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + (hoverInfo ? `\n${hoverInfo}` : '\n');
 }
 
 // Debug / scripting handle (also handy for automated tests).
@@ -430,7 +464,9 @@ function renderOnce(): void {
   get plan() { return plan; },
   sim,
   view,
-  step: (n: number) => { for (let i = 0; i < n; i++) sim.step(plan.params); renderOnce(); },
+  step: (n: number) => { doSteps(n); renderOnce(); },
+  get gpu() { return gpu; },
+  download: () => gpu?.download(),
   render: renderOnce,
   rebuild: rebuildGeometry,
   addFolds,

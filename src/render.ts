@@ -80,6 +80,8 @@ export class Renderer {
   off: HTMLCanvasElement;
   offCtx: CanvasRenderingContext2D;
   img: ImageData | null = null;
+  /** image drawn into both views; the CPU path uses `off`, the GPU path swaps in its canvas */
+  src: CanvasImageSource;
   flatView: Mat = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   foldedView: Mat = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   dpr = 1;
@@ -89,6 +91,7 @@ export class Renderer {
     this.folded = folded;
     this.off = document.createElement('canvas');
     this.offCtx = this.off.getContext('2d', { willReadFrequently: true })!;
+    this.src = this.off;
   }
 
   ensureTexture(sim: Sim): void {
@@ -103,6 +106,7 @@ export class Renderer {
     this.ensureTexture(sim);
     paintTexture(sim, dyes, opts, this.img!);
     this.offCtx.putImageData(this.img!, 0, 0);
+    this.src = this.off;
   }
 
   /** Resize a canvas' backing store to its CSS size. */
@@ -124,7 +128,7 @@ export class Renderer {
     ctx.save();
     ctx.setTransform(V.a, V.b, V.c, V.d, V.e, V.f);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.off, 0, 0, sim.N, sim.M, 0, 0, sim.W, sim.H);
+    ctx.drawImage(this.src, 0, 0, sim.N, sim.M, 0, 0, sim.W, sim.H);
     ctx.restore();
     // outline
     ctx.lineWidth = 1 * this.dpr;
@@ -176,7 +180,7 @@ export class Renderer {
       ctx.closePath();
       ctx.clip();
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(this.off, 0, 0, sim.N, sim.M, 0, 0, sim.W, sim.H);
+      ctx.drawImage(this.src, 0, 0, sim.N, sim.M, 0, 0, sim.W, sim.H);
       ctx.restore();
       // thin edge so faces on the same layer don't show hairline gaps
       ctx.save();

@@ -37,6 +37,17 @@ dh/dt = adsorption          (h = fixed dye, survives rinsing; f = free dye)
 
 Adsorption is Langmuir-style: rate ∝ free dye × remaining capacity. "Rinse" shows only `h`.
 
+**Solver.** The step runs as a WebGL2 fragment shader (`src/gpu.ts`): `f` and `h` are
+RGBA32F textures (one channel per dye), the layer links and press field are two static
+textures, and two framebuffers ping-pong with multiple render targets. Colour mapping is a
+second shader whose output canvas is drawn into both views. The CPU implementation in
+`src/sim.ts` is the reference and the fallback when float render targets are missing; the
+two agree to float precision. Strokes are applied on the CPU arrays (download, apply,
+upload) so there is one implementation of the stroke logic.
+
+Measured on a laptop GPU, 200 steps: 240² texels 24 ms, 800² texels 270 ms, versus 560 ms
+on the CPU at 240².
+
 **Bindings** are discs in bundle coordinates. Their distance field gives a press factor
 in [0,1] that blocks dye supply, reduces capacity, and reduces cross-layer transfer.
 
@@ -47,7 +58,8 @@ so you can dye first and then experiment with the folding.
 
 - `src/geom.ts` – vectors, affine matrices, polygon clipping
 - `src/fold.ts` – faces, `applyFold`, presets (accordion, zigzag triangles, diagonal)
-- `src/sim.ts` – texture + layer-contact graph, press field, strokes, explicit Euler step
+- `src/sim.ts` – texture + layer-contact graph, press field, strokes, explicit Euler step (CPU reference)
+- `src/gpu.ts` – WebGL2 solver and colour mapping (same step as a fragment shader)
 - `src/render.ts` – canvas rendering of both views, picking helpers
 - `src/plan.ts` – the serializable plan (cloth, folds, bands, strokes, dyes, params)
 - `src/main.ts` – UI
@@ -57,6 +69,6 @@ A debug handle is exposed as `window.tiedyer` (`step(n)`, `rebuild()`, `plan`, `
 ## Not yet
 
 Spirals, scrunch and crumple (need a particle cloth, not origami). Inverse design.
-Wrinkles, curved folds, weave anisotropy, wicking/evaporation. WebGL for the solver.
+Wrinkles, curved folds, weave anisotropy, wicking/evaporation.
 
 See `BRIEF.md` for the kickoff brief and prior-art links.

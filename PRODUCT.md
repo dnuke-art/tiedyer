@@ -57,10 +57,11 @@ a spot on the bundle numbers every layer under the cursor on the cloth.
 
 **v1 (built):** rectangular cloth, simple folds through all layers, presets for accordion,
 zigzag triangles (equilateral and right), diagonal, and hand-drawn creases; disc bindings;
-brush and dip dye with depth attenuation; diffusion with fixing and rinse; bidirectional
-hover picking; autosave, JSON export and import; static build with Pages workflow.
+brush and dip dye with depth attenuation; diffusion with fixing and rinse, on a WebGL2
+solver with a CPU fallback, up to 800 texels; bidirectional hover picking; autosave, JSON
+export and import; static build with Pages workflow.
 
-**v2:** WebGL solver for higher resolution and long batches; side-by-side comparison
+**v2:** side-by-side comparison
 against photos of real dyed cloth to calibrate spread, soak, and fixing; folds through a
 subset of layers; straight-line rubber bands as first-class bindings; per-dye parameters
 (reactive vs. acid, viscosity for ice dye).
@@ -88,8 +89,9 @@ folds; stitched shibori; garment shapes instead of rectangles; sharing a plan by
   sessions are spirals, the particle-cloth work moves up the list.
 - **Physics that looks right may still predict wrong.** The diffusion model has never been
   calibrated here. Until the photo comparison exists, treat the batch step as qualitative.
-- **Resolution versus responsiveness.** The CPU solver is comfortable at 240 texels and
-  sluggish at 400. Fine for planning, not for fine detail.
+- **Geometry rebuild cost.** The solver is fast now, but re-deriving the layer graph is a
+  brute-force point-in-polygon pass: about 1 s at 800 texels with 72 faces. A spatial
+  bucket would fix it if it starts to hurt.
 - **Does a flat stack model a fat bundle?** Real bundles are thick and layers separate in
   the bath. The press field and depth attenuation stand in for that; whether they stand in
   well enough is an empirical question.
