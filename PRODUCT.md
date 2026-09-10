@@ -76,6 +76,8 @@ folds; stitched shibori; garment shapes instead of rectangles; sharing a plan by
 **Not doing:** inverse design that proposes folds from a target picture, cloth mechanics
 (wrinkles, stretch), weave-level anisotropy, anything that needs a server.
 
+See `ROADMAP.md` for the longer list, and for where the engine could go beyond dye.
+
 ## Success looks like
 
 1. A kikko itajime and a fan-fold chevron planned in tiedyer come out of the wash looking

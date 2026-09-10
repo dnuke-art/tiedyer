@@ -94,7 +94,8 @@ Scrunch and crumple (the particle cloth can do them; the operations are not writ
 Bands and clamps as constraints inside the cloth sim. Inverse design. Curved folds,
 weave anisotropy, evaporation. The twist takes about 15 s at 101² particles.
 
-See `BRIEF.md` for the kickoff brief and prior-art links.
+See `BRIEF.md` for the kickoff brief and prior-art links, `PRODUCT.md` for the product
+brief, and `ROADMAP.md` for what comes next and where this could go beyond tie-dye.
 
 ## Headless testing
 
