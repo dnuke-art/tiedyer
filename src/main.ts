@@ -456,7 +456,7 @@ function renderOnce(): void {
     }
   });
 
-  statusEl.textContent = `${faces.length} faces · up to ${sim.maxLayers} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + (hoverInfo ? `\n${hoverInfo}` : '\n');
+  statusEl.textContent = `${faces.length} faces · up to ${sim.maxLayers} layers · ${sim.N}×${sim.M} texels · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).
