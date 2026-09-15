@@ -111,6 +111,30 @@ See `BRIEF.md` for the kickoff brief and prior-art links, `PRODUCT.md` for the p
 brief, `ROADMAP.md` for what comes next and where this could go beyond tie-dye, and
 `docs/3d-view.md` for a write-up of how the 3D view was built.
 
+## iOS app
+
+The same build ships as a native iOS app through [Capacitor](https://capacitorjs.com):
+a WKWebView serving the Vite output from the bundle, plus three small plugins
+(share sheet, filesystem, haptics). Nothing is loaded from the network and the
+analytics tag is stripped (`vite build --mode native`). `src/native.ts` is the only
+web code that knows about it: on the website it falls back to a download link and
+no-op haptics, and the plugin packages are imported lazily so the website bundle
+does not carry them.
+
+```sh
+npm run build:ios          # tsc + vite build --mode native + cap sync ios
+```
+
+`ios/` is the generated Xcode project (Swift Package Manager, no CocoaPods) and is
+committed; `ios/App/App/public` is the synced web build and is not. The app icon is
+the spiral demo rendered by the simulator (`node tools/icon.mjs`), and
+`node tools/native-test.mjs out.png` runs the native code paths headlessly with a
+fake Capacitor bridge.
+
+Release: `git tag ios-v0.1.0 && git push origin ios-v0.1.0` runs
+`.github/workflows/ios.yml` on a macOS runner, archives, and uploads to TestFlight.
+It needs the team's App Store Connect key and signing certificate secrets on the repo.
+
 ## Headless testing
 
 `tools/shot.mjs` drives the dev server in Playwright's cached Chromium (SwiftShader, so

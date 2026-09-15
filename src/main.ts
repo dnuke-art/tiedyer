@@ -6,6 +6,7 @@ import { ClothView, ClothBundle, makeClothBundle } from './cloth';
 import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
 import { Plan, Stroke, Mode, defaultPlan, demoPlan, spiralDemoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
+import { isNative, deliverFile, tap, toBase64 } from './native';
 import { Renderer, ViewOpts } from './render';
 import { GpuSolver } from './gpu';
 
@@ -38,6 +39,7 @@ const sim = new Sim(plan);
 function isFold(b: FlatFoldBundle | ClothBundle | null): b is FlatFoldBundle { return !!b && 'faces' in b; }
 function isCloth(b: FlatFoldBundle | ClothBundle | null): b is ClothBundle { return !!b && 'cloth' in b; }
 
+if (isNative()) document.body.classList.add('native');
 const flatCanvas = document.getElementById('flat') as HTMLCanvasElement;
 const foldedCanvas = document.getElementById('folded') as HTMLCanvasElement;
 const folded3dCanvas = document.getElementById('folded3d') as HTMLCanvasElement;
@@ -389,6 +391,7 @@ function buildSidebar(): void {
       btn('Spiral', () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); }),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
+      btn('Image', saveImage),
     ),
     el('details', { open: true },
       el('summary', {}, 'Cloth'),
@@ -451,12 +454,14 @@ function buildSidebar(): void {
 }
 
 function savePlan(): void {
-  const blob = new Blob([serializePlan(plan)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'tiedye-plan.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  deliverFile('tiedye-plan.json', toBase64(serializePlan(plan)), 'application/json', 'Tie-dye plan');
+}
+
+/** Export the unfolded pattern as a PNG at the on-screen resolution. */
+function saveImage(): void {
+  renderOnce();
+  const data = flatCanvas.toDataURL('image/png').split(',')[1];
+  deliverFile('tiedye.png', data, 'image/png', 'Tie-dye pattern');
 }
 
 function loadPlanFile(): void {
@@ -478,6 +483,7 @@ function loadPlanFile(): void {
 // Strokes and bindings
 
 function addStroke(s: Stroke): void {
+  tap();
   plan.strokes.push(s);
   gpu?.download();
   sim.applyStroke(s, plan.params, footprintOracle());
@@ -495,6 +501,7 @@ function stampAt(p: Vec2): void {
   if (tool === 'dye') {
     addStroke({ kind: 'brush', p, r: brush.r, dye: brush.dye, amount: brush.amount, side: paintSide(), pen: brush.pen });
   } else if (tool === 'band') {
+    tap();
     plan.bands.push({ p, r: brush.r });
     bandsDirty = true;
     dirty = true;
@@ -648,6 +655,7 @@ const release = (ev: PointerEvent) => {
       if (len3(along) > 0.3) {
         const n = norm3(cross3(along, bandStart.d));
         const mid: Vec3 = [(bandStart.p[0] + bandEnd[0]) / 2, (bandStart.p[1] + bandEnd[1]) / 2, (bandStart.p[2] + bandEnd[2]) / 2];
+        tap();
         plan.bands.push({ kind: 'slab', p: mid, n, w: brush.r });
         bandsDirty = true;
       }
