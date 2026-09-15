@@ -127,7 +127,7 @@ npm run build:ios          # tsc + vite build --mode native + cap sync ios
 
 `ios/` is the generated Xcode project (Swift Package Manager, no CocoaPods) and is
 committed; `ios/App/App/public` is the synced web build and is not. The app icon is
-the spiral demo rendered by the simulator (`node tools/icon.mjs`), and
+the spiral demo rendered by the simulator (`tools/icon.sh`), and
 `node tools/native-test.mjs out.png` runs the native code paths headlessly with a
 fake Capacitor bridge.
 
