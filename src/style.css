@@ -27,6 +27,8 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .view h2 .seg button:first-child, .view h2 .cam button:first-child { border-radius: 4px 0 0 4px; }
 .view h2 .seg button:last-child, .view h2 .cam button:last-child { border-radius: 0 4px 4px 0; }
 .view h2 .cam button + button, .view h2 .seg button + button { margin-left: -1px; }
+/* neighbours overlap by 1px to share a border; lift the hovered/active one so its outline is not clipped */
+.view h2 .cam button:hover, .view h2 .seg button:hover, .view h2 .cam button.on, .view h2 .seg button.on { position: relative; z-index: 1; }
 .stack { position: relative; flex: 1; min-height: 0; }
 .stack canvas { position: absolute; inset: 0; }
 .stack.three #folded { background: transparent; }

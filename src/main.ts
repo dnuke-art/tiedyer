@@ -89,13 +89,17 @@ function setThree(on: boolean): void {
 }
 v2dBtn.addEventListener('click', () => setThree(false));
 v3dBtn.addEventListener('click', () => setThree(true));
-document.getElementById('orbitBtn')!.addEventListener('click', () => setTool(tool === 'orbit' ? 'inspect' : 'orbit'));
+// orbit is a toggle: turning it off goes back to the paint tool that was active before (Dye by default),
+// never to Inspect, which in 3D also orbits and would leave no way to paint
+document.getElementById('orbitBtn')!.addEventListener('click', () => setTool(tool === 'orbit' ? paintTool : 'orbit'));
 document.getElementById('zoomIn')!.addEventListener('click', () => { view3d?.zoom(0.8); dirty = true; });
 document.getElementById('zoomOut')!.addEventListener('click', () => { view3d?.zoom(1.25); dirty = true; });
 document.getElementById('fitView')!.addEventListener('click', () => { view3d?.frame(); dirty = true; });
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
+/** the last paint tool (dye/band) chosen, restored when orbit is toggled off */
+let paintTool: 'dye' | 'band' = 'dye';
 const brush = { r: 3, amount: 0.8, pen: 10, dye: 0 };
 let playing = false;
 const budgetMs = 8;
@@ -308,6 +312,7 @@ function refreshModeUI(): void {
 }
 
 function setTool(t: Tool): void {
+  if (t === 'dye' || t === 'band') paintTool = t;
   tool = t;
   foldDraft = [];
   dirty = true;
