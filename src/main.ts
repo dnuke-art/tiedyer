@@ -1,7 +1,9 @@
 import './style.css';
 import { Vec2, Mat, apply, side, normalize, dist, clipPolygon } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, foldPreview, Axis } from './fold';
-import { flatFoldBundle, FlatFoldBundle } from './bundle';
+import { flatFoldBundle, FlatFoldBundle, LAYER_THICKNESS } from './bundle';
+import { foldMesh } from './foldmesh';
+import { encodeGlb } from './glb';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
 import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
 import { Plan, Stroke, Mode, BLEACH, defaultPlan, demoPlan, spiralDemoPlan, bleachDemoPlan, serializePlan, parsePlan } from './plan';
@@ -56,6 +58,8 @@ function sync3d(px: Float32Array, py: Float32Array, pz: Float32Array, reframe: b
   const key = `${sim.N}x${sim.M}x${plan.W}x${plan.H}`;
   if (key !== gridKey) { view3d.setGrid(sim.N, sim.M, plan.W, plan.H); gridKey = key; reframe = true; }
   view3d.setPositions(px, py, pz);
+  // flat folds get the exact polygon mesh; the particle cloth is drawn from its grid
+  view3d.setMesh(isFold(bundle) ? foldMesh(bundle.faces, plan.W, plan.H, LAYER_THICKNESS) : null);
   geomVersion++;
   if (reframe) view3d.frame();
 }
@@ -465,6 +469,7 @@ function buildSidebar(): void {
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
       btn('Image', saveImage),
+      el('button', { onclick: saveGlb, title: 'Export the folded bundle as a 3D model (glTF binary) with the dye as its texture' }, 'GLB'),
       btn('Help', openHelp),
     ),
     el('details', { open: true },
@@ -549,6 +554,27 @@ function saveImage(): void {
   renderOnce();
   const data = flatCanvas.toDataURL('image/png').split(',')[1];
   deliverFile('tiedye.png', data, 'image/png', 'Tie-dye pattern');
+}
+
+/** The bundle as a .glb: the 3D view's mesh with the dye image as its texture. */
+async function buildGlb(): Promise<Uint8Array | null> {
+  if (!view3d) return null;
+  renderOnce();
+  const mesh = view3d.exportMesh();
+  if (!mesh) return null;
+  // copy the dye image (which may live on a WebGL canvas) through a 2D canvas to get a PNG
+  const c = document.createElement('canvas');
+  c.width = renderer.src.width; c.height = renderer.src.height;
+  c.getContext('2d')!.drawImage(renderer.src, 0, 0);
+  const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/png'));
+  if (!blob) return null;
+  const png = new Uint8Array(await blob.arrayBuffer());
+  return encodeGlb(mesh, png, plan.mode === 'twist' ? 'twist' : 'bundle');
+}
+
+async function saveGlb(): Promise<void> {
+  const glb = await buildGlb();
+  if (glb) deliverFile('tiedye-bundle.glb', glb, 'model/gltf-binary', 'Tie-dye bundle');
 }
 
 function loadPlanFile(): void {
@@ -1116,6 +1142,7 @@ function renderOnce(): void {
   addFolds,
   addStroke,
   setTool,
+  buildGlb,
 };
 
 buildSidebar();

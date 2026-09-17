@@ -97,9 +97,14 @@ and a ceiling pats the bundle flat. Particle positions, contacts with other laye
 reach, and exposure (voxel flood fill of the rasterized sheet) become a Bundle for the same
 dye solver. The run happens in a Web Worker with live progress.
 
-**3D view.** Both bundles are drawn by one WebGL2 renderer (`src/view3d.ts`): the texel
-grid as a lit textured mesh (two triangles per quad, UV = flat coordinates, quads that
-straddle a fold dropped) or as oriented Gaussian surfel splats, with an orbit camera.
+**3D view.** Both bundles are drawn by one WebGL2 renderer (`src/view3d.ts`). A flat-fold
+bundle is drawn as an exact mesh built from the face polygons (`src/foldmesh.ts`): each face
+is split by the edges of the faces beneath it into cells at exact layer heights, every
+edge gets a skirt one cloth thickness tall, and every crease gets a rounded fold that
+bulges out by half the height it spans, so nested folds sit inside each other. UV = flat
+coordinates, so the dye image is the texture and a fragment's texel id comes from its UV.
+The particle cloth is drawn from its texel grid (two triangles per quad, quads that
+straddle a fold dropped) or as oriented Gaussian surfel splats. Both have an orbit camera.
 Picking is an ID buffer. A 3D squirt is stored as a hit point and a spray direction; its
 entry set is found by rendering texel IDs from a small orthographic camera looking along
 that direction, so it is camera independent and replays after the geometry changes. From
@@ -117,6 +122,8 @@ thickness) and voxel exposure, so the edges of a folded stack are dyeable.
 - `src/gpu.ts` – WebGL2 solver and colour mapping (same step as a fragment shader)
 - `src/render.ts` – 2D canvas rendering of both views, picking helpers
 - `src/view3d.ts` – WebGL2 3D bundle view: mesh, splats, orbit camera, ID picking, footprints
+- `src/foldmesh.ts` – exact polygon mesh of a flat-fold bundle (cells, skirts, rounded creases)
+- `src/glb.ts` – glTF binary writer: the 3D mesh with the dye image as its texture (GLB button)
 - `src/bundle.ts` – the Bundle contract (positions, weighted contacts, surface flags); flat-fold producer
 - `src/cloth.ts` – particle cloth, twist operation, bundle extraction
 - `src/twist.worker.ts` – runs the twist off the main thread

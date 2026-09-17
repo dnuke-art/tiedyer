@@ -157,8 +157,11 @@ export interface FlatFoldBundle extends Bundle {
   maxLayers: number;
 }
 
+/** cloth thickness: pz spacing between layers of a flat-fold bundle (cm) */
+export const LAYER_THICKNESS = 0.1;
+
 /** Bundle from an origami face set. Layer thickness sets pz spacing (cm). */
-export function flatFoldBundle(d: GridDims, faces: Face[], thickness = 0.1): FlatFoldBundle {
+export function flatFoldBundle(d: GridDims, faces: Face[], thickness = LAYER_THICKNESS): FlatFoldBundle {
   const b = alloc(d);
   const index = indexFaces(faces);
   const faceId = new Int32Array(b.n).fill(-1);

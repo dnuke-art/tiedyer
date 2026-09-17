@@ -5,6 +5,7 @@
 // direction d at point p, within radius R?" by rendering IDs from a small
 // orthographic camera. That makes 3D strokes replayable after the geometry changes.
 
+import type { Mesh3 } from './foldmesh';
 export type Vec3 = [number, number, number];
 export type Style = 'mesh' | 'splat';
 
@@ -75,10 +76,18 @@ const MESH_FS = `#version 300 es
 precision highp float;
 in vec2 vUv; in vec3 vPos; flat in float vId;
 uniform sampler2D uTex; uniform vec3 uLight; uniform vec3 uEye; uniform int uIdMode; uniform float uCloth;
+uniform int uIdFromUv; uniform vec2 uGrid;
 out vec4 o;
 vec4 encode(float id) { float v = id + 1.0; return vec4(mod(v, 256.0) / 255.0, mod(floor(v / 256.0), 256.0) / 255.0, floor(v / 65536.0) / 255.0, 1.0); }
 void main() {
-  if (uIdMode == 1) { o = encode(vId); return; }
+  if (uIdMode == 1) {
+    float id = vId;
+    if (uIdFromUv == 1) {
+      vec2 g = clamp(floor(vUv * uGrid), vec2(0.0), uGrid - 1.0);
+      id = g.x + g.y * uGrid.x;
+    }
+    o = encode(id); return;
+  }
   vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
   vec3 v = normalize(uEye - vPos);
   if (dot(n, v) < 0.0) n = -n;
@@ -163,6 +172,12 @@ export class View3D {
   private bufId: WebGLBuffer;
   private bufIdx: WebGLBuffer;
   private bufCorner: WebGLBuffer;
+  /** exact polygon mesh (flat folds); when set it replaces the grid triangles */
+  private vaoPoly: WebGLVertexArrayObject;
+  private bufPPos: WebGLBuffer;
+  private bufPUv: WebGLBuffer;
+  private bufPIdx: WebGLBuffer;
+  private poly: Mesh3 | null = null;
   private tex: WebGLTexture;
   private idFbo: WebGLFramebuffer;
   private idTex: WebGLTexture;
@@ -203,6 +218,17 @@ export class View3D {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1]), gl.STATIC_DRAW);
     this.vaoMesh = gl.createVertexArray()!;
     this.vaoSplat = gl.createVertexArray()!;
+    this.vaoPoly = gl.createVertexArray()!;
+    this.bufPPos = gl.createBuffer()!; this.bufPUv = gl.createBuffer()!; this.bufPIdx = gl.createBuffer()!;
+    gl.bindVertexArray(this.vaoPoly);
+    for (const [name, buf, size] of [['aPos', this.bufPPos, 3], ['aUv', this.bufPUv, 2]] as [string, WebGLBuffer, number][]) {
+      const loc = gl.getAttribLocation(this.meshProg, name);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.bufPIdx);
+    gl.bindVertexArray(null);
     this.tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -304,6 +330,32 @@ export class View3D {
     this.idDirty = true;
   }
 
+  /**
+   * Exact mesh to draw instead of the grid triangles (null = grid). Positions in
+   * bundle cm, UVs over the flat cloth; ids come from the UV in the shader.
+   */
+  setMesh(m: Mesh3 | null): void {
+    this.poly = m;
+    this.idDirty = true;
+    if (!m) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufPPos); gl.bufferData(gl.ARRAY_BUFFER, m.pos, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufPUv); gl.bufferData(gl.ARRAY_BUFFER, m.uv, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.bufPIdx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+  }
+
+  /** What the mesh style draws: the exact polygon mesh, or the grid triangles. */
+  exportMesh(): Mesh3 | null {
+    if (this.poly) return this.poly;
+    if (!this.hasCloth) return null;
+    const uv = new Float32Array(this.n * 2);
+    for (let j = 0; j < this.M; j++) for (let i = 0; i < this.N; i++) {
+      const k = j * this.N + i;
+      uv[k * 2] = (i + 0.5) / this.N; uv[k * 2 + 1] = (j + 0.5) / this.M;
+    }
+    return { pos: this.pos.slice(), uv, idx: this.idx.slice(0, this.nIdx) };
+  }
+
   position(i: number): Vec3 { return [this.pos[i * 3], this.pos[i * 3 + 1], this.pos[i * 3 + 2]]; }
   normal(i: number): Vec3 { return [this.nrm[i * 3], this.nrm[i * 3 + 1], this.nrm[i * 3 + 2]]; }
 
@@ -368,7 +420,13 @@ export class View3D {
       gl.uniform1f(gl.getUniformLocation(prog, 'uSize'), 0.75 * this.h);
       gl.bindVertexArray(this.vaoSplat);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.n);
+    } else if (this.poly) {
+      gl.uniform1i(gl.getUniformLocation(prog, 'uIdFromUv'), 1);
+      gl.uniform2f(gl.getUniformLocation(prog, 'uGrid'), this.N, this.M);
+      gl.bindVertexArray(this.vaoPoly);
+      gl.drawElements(gl.TRIANGLES, this.poly.idx.length, gl.UNSIGNED_INT, 0);
     } else {
+      gl.uniform1i(gl.getUniformLocation(prog, 'uIdFromUv'), 0);
       gl.bindVertexArray(this.vaoMesh);
       gl.drawElements(gl.TRIANGLES, this.nIdx, gl.UNSIGNED_INT, 0);
     }
@@ -377,7 +435,7 @@ export class View3D {
 
   private camKey(): string {
     const c = this.cam;
-    return `${c.az},${c.el},${c.dist},${c.target[0]},${c.target[1]},${c.target[2]},${this.style}`;
+    return `${c.az},${c.el},${c.dist},${c.target[0]},${c.target[1]},${c.target[2]},${this.style},${this.poly ? 'p' : 'g'}`;
   }
 
   /** Draw the view into the canvas (backing store sized by the caller). */

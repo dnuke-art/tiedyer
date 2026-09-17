@@ -38,7 +38,9 @@ dependencies. Two styles draw the same buffers.
 Vertex attributes are position, UV, and texel id. UV is the flat cloth coordinate
 `((i + 0.5) / N, (j + 0.5) / M)`, which means the dye image *is* the texture: the colour
 mapping shader already renders the dyed cloth into a canvas, and that canvas is uploaded
-with `texImage2D` whenever the dye changes. No copy, no per-vertex colour.
+with `texImage2D` whenever the dye changes. No copy, no per-vertex colour. This grid
+mesh is what the particle cloth is drawn with; flat folds get the exact mesh of
+section 12 instead, drawn by the same shader with the id derived from the UV.
 
 Lighting is flat shading from screen-space derivatives, which needs no normal buffer:
 
@@ -231,3 +233,51 @@ Splats with sorted alpha blending for the truly soft look; clamps as paired slab
 pressure as soak volume; drawing the twist in 3D while it runs at full frame rate; and
 a real phone test of the two-finger gesture, which was only exercised with synthetic
 events.
+
+## 12. The exact mesh, and why the grid mesh looked wrong
+
+Drawn from the texel grid, a folded stack had sawtooth edges on every layer and dark
+striped walls between layers. That was not the fold maths and not the shading. Face
+boundaries fall wherever they fall, and a mesh made of 2.5 mm texel quads can only
+follow them as a staircase; quads with corners on different layers, short of the
+four-spacing cut-off, became slivers and walls of whatever height the two layers were
+apart. The sim never saw any of it, because the contact graph is built from the exact
+face polygons; only the picture was wrong.
+
+`src/foldmesh.ts` builds the picture from the same polygons. A face is not a flat plate
+in the bundle: its height at a point is the number of faces below it there, times the
+cloth thickness, so it steps up wherever a lower face ends underneath it. The builder
+reproduces that exactly:
+
+1. Each face polygon (in bundle space) is clipped by every edge line of every face
+   below it, which cuts it into convex cells. Each cell's height is sampled at its
+   centroid. Coincident edges, which every preset produces by the dozen, clip to a
+   full polygon plus a zero-area sliver that is discarded.
+2. Every cell edge whose neighbour across the edge is lower or missing gets a skirt one
+   cloth thickness tall. That covers raw cloth edges, the cliffs where a face steps
+   down, and creases, and because each height band belongs to exactly one face there
+   are no coplanar overlaps to fight over.
+3. A crease is an edge with another face adjacent in the *flat* cloth. In the bundle
+   both faces lie along the same segment at two heights, so a half-turn arc joins the
+   top of the upper face to the underside of the lower one, bulging outward by half the
+   height it spans. Nested folds through a stack share a centre and differ in radius by
+   one thickness, so they sit inside each other like the layers of a rolled edge. The
+   arc is split where the partner face's own height steps.
+4. The bottom layer gets a floor.
+
+UVs are flat coordinates over the cloth size, so the dye image stays the texture, and
+the fragment shader computes the texel id as `floor(uv × (N, M))`, which means picking,
+footprints and 3D strokes work unchanged. Skirts and arcs carry the flat coordinates of
+the edge they hang from, so a squirt on a rounded fold lands on the crease-line texels,
+which is where it should. The 72-layer kikko is about 10 000 vertices and 7 000
+triangles, against 114 000 triangles for the grid. Picking a top-surface texel from its
+own projection returns that texel exactly; from an oblique camera the only misses are
+texels genuinely hidden behind a higher plateau.
+
+**GLB export.** The same mesh, with the dye image as a PNG, is what the GLB button
+writes (`src/glb.ts`): one primitive with POSITION, TEXCOORD_0 and indices, a
+double-sided material with the image as base colour, under a node that rotates the
+Z-up centimetre bundle into glTF's Y-up metres. No library; the container is a JSON
+chunk and a binary chunk. The particle cloth exports its grid mesh the same way. The
+file validates clean with the Khronos validator; a kikko at 240² is about 360 KB.
+
