@@ -49,8 +49,9 @@ export class Sim {
   wet = new Float32Array(0);
   /** extra dye taken up by a wet texel from later squirts, in layer-fills (0 .. buildup) */
   load = new Float32Array(0);
-  /** per-stroke: 0 untouched, 1 touched while not yet full, 2 was already full before this stroke */
-  private touched = new Uint8Array(0);
+  /** per-stroke: 0 untouched, 1 touched while not yet full, 2 was already full before this stroke.
+   *  After applyStroke, every texel the liquid reached is non-zero (used for the reach readout). */
+  touched = new Uint8Array(0);
   /** cloth colour: dye index (-1 = none) and fixed amount per texel */
   base = -1;
   baseFixed = 0;
@@ -207,7 +208,6 @@ export class Sim {
     const press = this.press;
     const species = [...this.f, this.bl];
     pending.fill(0);
-    touched.fill(0);
     queued.fill(0);
     let head = 0, tail = 0;
     // neighbour iteration: layer contacts then grid neighbours
@@ -284,6 +284,7 @@ export class Sim {
    */
   applyStroke(s: Stroke, params: SimParams, footprint?: (p: [number, number, number], d: [number, number, number], radius: number) => { ids: Int32Array; dist: Float32Array }): void {
     if (s.dye >= this.nDyes || (s.dye < 0 && s.dye !== BLEACH)) return;
+    this.touched.fill(0); // one stroke = one reach, even when a dip pours from both sides
     const f = s.dye === BLEACH ? this.bl : this.f[s.dye];
     const volume = Math.max(0, s.pen);
     if (s.kind === 'dip') {

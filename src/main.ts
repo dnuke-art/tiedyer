@@ -567,6 +567,15 @@ function loadPlanFile(): void {
 // ---------------------------------------------------------------------------
 // Strokes and bindings
 
+/** how many layers the last squirt reached, for the status line */
+let lastReach = '';
+function noteReach(): void {
+  if (!isFold(bundle)) { lastReach = ''; return; }
+  const seen = new Set<number>(), t = sim.touched, d = bundle.depthTop;
+  for (let i = 0; i < t.length; i++) if (t[i]) seen.add(d[i]);
+  lastReach = seen.size ? ` · last squirt reached ${seen.size} of ${bundle.maxLayers} layers` : '';
+}
+
 function addStroke(s: Stroke, holdable = false): void {
   tap();
   plan.strokes.push(s);
@@ -576,6 +585,7 @@ function addStroke(s: Stroke, holdable = false): void {
     hold = { stroke: s, pen0: s.pen, snap: [...sim.f, sim.bl].map((a) => a.slice()), wet: sim.wet.slice(), load: sim.load.slice(), t0: performance.now() };
   }
   sim.applyStroke(s, plan.params, footprintOracle());
+  noteReach();
   gpu?.upload();
   dirty = true;
   dirtyDye = true;
@@ -802,6 +812,7 @@ function pourHeld(): void {
   sim.load.set(hold.load);
   s.pen = pen;
   sim.applyStroke(s, plan.params, footprintOracle());
+  noteReach();
   gpu?.upload();
   dirty = true;
   dirtyDye = true;
@@ -1079,7 +1090,7 @@ function renderOnce(): void {
     ? (twistStatus ? `twisting: ${twistStatus}` : `twist ${plan.twist.turns} turns · ${sim.N}×${sim.M} particles`)
     : `${faces.length} faces · up to ${isFold(bundle) ? bundle.maxLayers : 0} layers · ${sim.N}×${sim.M} texels`;
   const pouring = hold && dragging ? ` · pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
-  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}${pouring} · build ${__BUILD__}` + '\n' + hoverInfo;
+  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}${lastReach}${pouring} · build ${__BUILD__}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).

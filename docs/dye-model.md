@@ -51,6 +51,12 @@ advances as a *saturation front* through the stack: the top layer fills, then
 the next, and so on, until the volume is spent. Overflow with nowhere to go
 drips off.
 
+Sideways wick is what decides depth in a thick stack: every layer's neighbours
+take their share on the way down, so at the default 0.35 a squirt stalls well
+short of the bottom of a tall stack however much you pour, while at 0 the same
+soak goes straight through. The status line shows how many layers the last
+squirt reached.
+
 Because a texel can be filled from any neighbour with excess, not only from the
 one that reached it first, fronts have no dry seams where the set of feeding
 texels changes, for example under the edge of the layer above.
@@ -137,7 +143,8 @@ texel blocks the front entirely.
 
 | I want… | Use |
 |---|---|
-| A squirt to reach more layers at once | Soak up, or hold the button still |
+| A squirt to reach more layers at once | Sideways wick down first (it is the main lever: on the 72-layer kikko a soak-60 squirt reaches 42 layers at 0.35 and all 72 at 0), then soak up, or hold the button still. The status line reports how many layers the last squirt reached |
+| Dye on every layer regardless | Paint the edges of the stack in 3D, or dip |
 | A darker, richer area | Go over it again; raise build-up to allow more |
 | To stop a colour from ever going black | Lower build-up (0 = one squirt's worth, full stop) |
 | Softer edges after the fact | Spread up, longer batch |
