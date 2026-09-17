@@ -1,13 +1,14 @@
 // WebGL2 solver: the same diffusion / fixing step as Sim.step, run as a fragment
 // shader over the flat texture. Free dye f and fixed dye h are RGBA32F textures
-// (one channel per dye, up to 4). The layer-contact graph is a static RGBA32F
+// (one channel per dye, up to 4); free bleach b is a third texture (red channel),
+// so the ping-pong framebuffers have three render targets. The layer-contact graph is a static RGBA32F
 // texture of (upX, upY, downX, downY) texel coordinates, and press/validity is a
 // second static texture. Two FBOs ping-pong (f, h) with multiple render targets.
 //
 // The CPU arrays in Sim stay the source of truth for strokes and replays: upload()
 // after they change, download() before a stroke is applied on top of GPU state.
 
-import { Sim, stableDt } from './sim';
+import { Sim, stableDt, STOICH } from './sim';
 import { K } from './bundle';
 import { SimParams, DyeDef } from './plan';
 import { ViewOpts } from './render';
@@ -22,41 +23,65 @@ void main() {
 const STEP_FS = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-uniform sampler2D uF, uH, uPress, uLinkA, uLinkB, uWeightA, uWeightB;
+uniform sampler2D uF, uH, uB, uPress, uLinkA, uLinkB, uWeightA, uWeightB;
 uniform ivec2 uSize;
-uniform float uDP, uDZ, uRate, uCap, uDt;
+uniform float uDP, uDZ, uRate, uCap, uDt, uBleach, uDecay, uStoich;
 layout(location = 0) out vec4 oF;
 layout(location = 1) out vec4 oH;
+layout(location = 2) out vec4 oB;
 
-vec4 nb(ivec2 ij, ivec2 d, vec4 f) {
+// in-plane neighbour difference for dye (xyzw) and bleach (b)
+void nb(ivec2 ij, ivec2 d, vec4 f, float b, inout vec4 lap, inout float lapB) {
   ivec2 q = ij + d;
-  if (q.x < 0 || q.y < 0 || q.x >= uSize.x || q.y >= uSize.y) return vec4(0.0);
-  if (texelFetch(uPress, q, 0).g < 0.5) return vec4(0.0);
-  return texelFetch(uF, q, 0) - f;
+  if (q.x < 0 || q.y < 0 || q.x >= uSize.x || q.y >= uSize.y) return;
+  if (texelFetch(uPress, q, 0).g < 0.5) return;
+  lap += texelFetch(uF, q, 0) - f;
+  lapB += texelFetch(uB, q, 0).r - b;
 }
 
 // contact texel by packed float index (-1 = none)
-vec4 contact(float idx, float w, vec4 f) {
-  if (idx < 0.0 || w <= 0.0) return vec4(0.0);
+void contact(float idx, float w, vec4 f, float b, inout vec4 cz, inout float czB) {
+  if (idx < 0.0 || w <= 0.0) return;
   int i = int(idx + 0.5);
   ivec2 q = ivec2(i % uSize.x, i / uSize.x);
-  return w * (texelFetch(uF, q, 0) - f);
+  cz += w * (texelFetch(uF, q, 0) - f);
+  czB += w * (texelFetch(uB, q, 0).r - b);
 }
 
 void main() {
   ivec2 ij = ivec2(gl_FragCoord.xy);
   vec4 f = texelFetch(uF, ij, 0);
   vec4 h = texelFetch(uH, ij, 0);
+  float b = texelFetch(uB, ij, 0).r;
   vec4 pr = texelFetch(uPress, ij, 0);
-  if (pr.g < 0.5) { oF = vec4(0.0); oH = h; return; }
-  vec4 lap = nb(ij, ivec2(-1, 0), f) + nb(ij, ivec2(1, 0), f) + nb(ij, ivec2(0, -1), f) + nb(ij, ivec2(0, 1), f);
-  lap *= uDP;
+  if (pr.g < 0.5) { oF = vec4(0.0); oH = h; oB = vec4(0.0); return; }
+  // 1. diffusion of every mobile species from the old values
+  vec4 lap = vec4(0.0); float lapB = 0.0;
+  nb(ij, ivec2(-1, 0), f, b, lap, lapB); nb(ij, ivec2(1, 0), f, b, lap, lapB);
+  nb(ij, ivec2(0, -1), f, b, lap, lapB); nb(ij, ivec2(0, 1), f, b, lap, lapB);
+  lap *= uDP; lapB *= uDP;
   vec4 la = texelFetch(uLinkA, ij, 0), lb = texelFetch(uLinkB, ij, 0);
   vec4 wa = texelFetch(uWeightA, ij, 0), wb = texelFetch(uWeightB, ij, 0);
-  vec4 cz = contact(la.x, wa.x, f) + contact(la.y, wa.y, f) + contact(la.z, wa.z, f) + contact(la.w, wa.w, f)
-          + contact(lb.x, wb.x, f) + contact(lb.y, wb.y, f) + contact(lb.z, wb.z, f) + contact(lb.w, wb.w, f);
-  lap += uDZ * pr.r * cz;
+  vec4 cz = vec4(0.0); float czB = 0.0;
+  contact(la.x, wa.x, f, b, cz, czB); contact(la.y, wa.y, f, b, cz, czB); contact(la.z, wa.z, f, b, cz, czB); contact(la.w, wa.w, f, b, cz, czB);
+  contact(lb.x, wb.x, f, b, cz, czB); contact(lb.y, wb.y, f, b, cz, czB); contact(lb.z, wb.z, f, b, cz, czB); contact(lb.w, wb.w, f, b, cz, czB);
+  lap += uDZ * pr.r * cz; lapB += uDZ * pr.r * czB;
   vec4 fn = max(f + uDt * lap, vec4(0.0));
+  float bn = max(b + uDt * lapB, 0.0);
+  // 2. bleaching: a fraction e of every species goes, bleach is spent and goes off
+  if (bn > 0.0) {
+    float e = min(1.0, uBleach * bn * uDt);
+    if (e > 0.0) {
+      float tot = dot(fn, vec4(1.0)) + dot(h, vec4(1.0));
+      fn *= 1.0 - e;
+      h *= 1.0 - e;
+      bn -= uStoich * e * tot;
+    }
+    bn -= uDecay * bn * uDt;
+    bn = max(bn, 0.0);
+  }
+  oB = vec4(bn, 0.0, 0.0, 0.0);
+  // 3. adsorption
   float room = uCap * pr.r - dot(h, vec4(1.0));
   vec4 da = vec4(0.0);
   if (room > 0.0) {
@@ -71,10 +96,10 @@ void main() {
 const DISPLAY_FS = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-uniform sampler2D uF, uH, uPress;
+uniform sampler2D uF, uH, uB, uPress;
 uniform ivec2 uSize;
 uniform vec4 uLogR, uLogG, uLogB;
-uniform float uStrength, uFixedOnly, uShowPress;
+uniform float uStrength, uFixedOnly, uShowPress, uShowBleach;
 out vec4 o;
 void main() {
   ivec2 ij = ivec2(int(gl_FragCoord.x), uSize.y - 1 - int(gl_FragCoord.y));
@@ -82,6 +107,10 @@ void main() {
   if (uFixedOnly < 0.5) a += texelFetch(uF, ij, 0);
   a = max(a, vec4(0.0));
   vec3 rgb = exp(uStrength * vec3(dot(a, uLogR), dot(a, uLogG), dot(a, uLogB)));
+  if (uShowBleach > 0.5 && uFixedOnly < 0.5) {
+    float bl = min(1.0, texelFetch(uB, ij, 0).r);
+    rgb = mix(rgb, vec3(0.72, 0.88, 0.94), 0.4 * bl);
+  }
   if (uShowPress > 0.5) {
     float t = 1.0 - texelFetch(uPress, ij, 0).r;
     rgb = mix(rgb, vec3(1.0, 0.47, 0.16), 0.5 * t);
@@ -120,6 +149,7 @@ export class GpuSolver {
   private dispProg: WebGLProgram;
   private texF: WebGLTexture[] = [];
   private texH: WebGLTexture[] = [];
+  private texB: WebGLTexture[] = [];
   private fbo: WebGLFramebuffer[] = [];
   private texLinkA!: WebGLTexture;
   private texLinkB!: WebGLTexture;
@@ -151,8 +181,8 @@ export class GpuSolver {
     this.gl = gl;
     this.stepProg = program(gl, STEP_FS);
     this.dispProg = program(gl, DISPLAY_FS);
-    for (const n of ['uF', 'uH', 'uPress', 'uLinkA', 'uLinkB', 'uWeightA', 'uWeightB', 'uSize', 'uDP', 'uDZ', 'uRate', 'uCap', 'uDt']) this.stepU[n] = gl.getUniformLocation(this.stepProg, n);
-    for (const n of ['uF', 'uH', 'uPress', 'uSize', 'uLogR', 'uLogG', 'uLogB', 'uStrength', 'uFixedOnly', 'uShowPress']) this.dispU[n] = gl.getUniformLocation(this.dispProg, n);
+    for (const n of ['uF', 'uH', 'uB', 'uPress', 'uLinkA', 'uLinkB', 'uWeightA', 'uWeightB', 'uSize', 'uDP', 'uDZ', 'uRate', 'uCap', 'uDt', 'uBleach', 'uDecay', 'uStoich']) this.stepU[n] = gl.getUniformLocation(this.stepProg, n);
+    for (const n of ['uF', 'uH', 'uB', 'uPress', 'uSize', 'uLogR', 'uLogG', 'uLogB', 'uStrength', 'uFixedOnly', 'uShowPress', 'uShowBleach']) this.dispU[n] = gl.getUniformLocation(this.dispProg, n);
     this.resize();
   }
 
@@ -175,11 +205,12 @@ export class GpuSolver {
     this.M = this.sim.M;
     this.canvas.width = this.N;
     this.canvas.height = this.M;
-    for (const t of [...this.texF, ...this.texH]) gl.deleteTexture(t);
+    for (const t of [...this.texF, ...this.texH, ...this.texB]) gl.deleteTexture(t);
     for (const f of this.fbo) gl.deleteFramebuffer(f);
     for (const t of [this.texLinkA, this.texLinkB, this.texWeightA, this.texWeightB, this.texPress]) if (t) gl.deleteTexture(t);
     this.texF = [this.makeTex(), this.makeTex()];
     this.texH = [this.makeTex(), this.makeTex()];
+    this.texB = [this.makeTex(), this.makeTex()];
     this.texLinkA = this.makeTex();
     this.texLinkB = this.makeTex();
     this.texWeightA = this.makeTex();
@@ -190,7 +221,8 @@ export class GpuSolver {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.texF[i], 0);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.texH[i], 0);
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, this.texB[i], 0);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
       if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('fbo incomplete');
       return fb;
     });
@@ -243,6 +275,11 @@ export class GpuSolver {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.N, this.M, gl.RGBA, gl.FLOAT, buf);
     }
+    buf.fill(0);
+    const bl = this.sim.bl;
+    for (let i = 0; i < n; i++) buf[i * 4] = bl[i];
+    gl.bindTexture(gl.TEXTURE_2D, this.texB[this.cur]);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.N, this.M, gl.RGBA, gl.FLOAT, buf);
   }
 
   /** GPU -> sim.f / sim.h */
@@ -257,6 +294,10 @@ export class GpuSolver {
         for (let i = 0; i < n; i++) a[i] = this.scratch[i * 4 + k];
       }
     }
+    gl.readBuffer(gl.COLOR_ATTACHMENT2);
+    gl.readPixels(0, 0, this.N, this.M, gl.RGBA, gl.FLOAT, this.scratch);
+    const bl = this.sim.bl;
+    for (let i = 0; i < n; i++) bl[i] = this.scratch[i * 4];
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
@@ -277,6 +318,9 @@ export class GpuSolver {
     gl.uniform1f(this.stepU.uRate, params.adsorb);
     gl.uniform1f(this.stepU.uCap, params.capacity);
     gl.uniform1f(this.stepU.uDt, stableDt(params));
+    gl.uniform1f(this.stepU.uBleach, params.bleach);
+    gl.uniform1f(this.stepU.uDecay, params.bleachDecay);
+    gl.uniform1f(this.stepU.uStoich, STOICH);
     this.bindTex(2, this.texPress, this.stepU.uPress);
     this.bindTex(3, this.texLinkA, this.stepU.uLinkA);
     this.bindTex(4, this.texLinkB, this.stepU.uLinkB);
@@ -287,6 +331,7 @@ export class GpuSolver {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[dst]);
       this.bindTex(0, this.texF[src], this.stepU.uF);
       this.bindTex(1, this.texH[src], this.stepU.uH);
+      this.bindTex(7, this.texB[src], this.stepU.uB);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       this.cur = dst;
     }
@@ -312,9 +357,11 @@ export class GpuSolver {
     gl.uniform1f(this.dispU.uStrength, opts.strength);
     gl.uniform1f(this.dispU.uFixedOnly, opts.fixedOnly ? 1 : 0);
     gl.uniform1f(this.dispU.uShowPress, opts.showPress ? 1 : 0);
+    gl.uniform1f(this.dispU.uShowBleach, opts.showBleach ? 1 : 0);
     this.bindTex(0, this.texF[this.cur], this.dispU.uF);
     this.bindTex(1, this.texH[this.cur], this.dispU.uH);
     this.bindTex(2, this.texPress, this.dispU.uPress);
+    this.bindTex(3, this.texB[this.cur], this.dispU.uB);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 }

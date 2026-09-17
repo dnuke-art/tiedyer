@@ -5,15 +5,24 @@
 // other layers comes from the bundle's weighted contact graph. This is Morimoto &
 // Ono's 3D diffusion graph, stored as a 2D texture plus gather maps.
 //
-//   df/dt = div(D grad f) + supply - adsorption
-//   dh/dt = adsorption          (h = fixed dye, survives rinsing)
+//   df/dt = div(D grad f) + supply - adsorption - bleaching
+//   dh/dt = adsorption - bleaching          (h = fixed dye, survives rinsing)
+//   db/dt = div(D grad b) - consumption - decay   (b = free bleach)
+//
+// Bleach is a fifth liquid: it wicks and diffuses like dye, and where it meets
+// dye (free or fixed) it destroys a fraction rate*b per step of every species,
+// spending itself in proportion (STOICH) and going off on its own (decay). A
+// cloth colour (plan.base) is a dye fixed uniformly before the first stroke.
 //
 // Bindings (bands/clamps) produce a press field P in [0,1]: 0 under a clamp, rising
 // to 1 at pressRadius away. Press blocks dye supply, reduces capacity, and reduces
 // cross-layer transfer (no liquid in a squeezed gap).
 
 import { Bundle, K } from './bundle';
-import { BandStamp, Stroke, SimParams, Plan } from './plan';
+import { BandStamp, Stroke, SimParams, Plan, BLEACH } from './plan';
+
+/** bleach spent per unit of dye destroyed */
+export const STOICH = 0.5;
 
 export class Sim {
   N = 0;
@@ -30,7 +39,13 @@ export class Sim {
   f: Float32Array[] = [];
   /** adsorbed (fixed) dye per species */
   h: Float32Array[] = [];
-  private tmp = new Float32Array(0);
+  /** free bleach */
+  bl = new Float32Array(0);
+  /** cloth colour: dye index (-1 = none) and fixed amount per texel */
+  base = -1;
+  baseFixed = 0;
+  private tmpK: Float32Array[] = [];
+  private tmpB = new Float32Array(0);
   private hsum = new Float32Array(0);
   private vol = new Float32Array(0);
   private depth = new Int32Array(0);
@@ -52,18 +67,28 @@ export class Sim {
     this.nDyes = plan.dyes.length;
     const n = this.N * this.M;
     this.press = new Float32Array(n).fill(1);
-    this.tmp = new Float32Array(n);
     this.hsum = new Float32Array(n);
     this.vol = new Float32Array(n);
     this.depth = new Int32Array(n);
     this.order = new Int32Array(n);
     this.f = [];
     this.h = [];
+    this.tmpK = [];
     for (let k = 0; k < this.nDyes; k++) {
       this.f.push(new Float32Array(n));
       this.h.push(new Float32Array(n));
+      this.tmpK.push(new Float32Array(n));
     }
+    this.bl = new Float32Array(n);
+    this.tmpB = new Float32Array(n);
+    this.setBase(plan);
     this.t = 0;
+  }
+
+  /** Cloth colour from the plan (applied by resetDye). */
+  setBase(plan: Plan): void {
+    this.base = plan.base >= 0 && plan.base < this.nDyes ? plan.base : -1;
+    this.baseFixed = Math.max(0, Math.min(1, plan.baseAmount)) * plan.params.capacity;
   }
 
   texelCenter(i: number): { x: number; y: number } {
@@ -107,8 +132,14 @@ export class Sim {
     }
   }
 
+  /** Back to the undyed (or uniformly pre-dyed) cloth. */
   resetDye(): void {
     for (let k = 0; k < this.nDyes; k++) { this.f[k].fill(0); this.h[k].fill(0); }
+    this.bl.fill(0);
+    if (this.base >= 0 && this.baseFixed > 0) {
+      const h = this.h[this.base], valid = this.bundle?.valid;
+      for (let i = 0; i < h.length; i++) if (!valid || valid[i]) h[i] = this.baseFixed;
+    }
     this.t = 0;
   }
 
@@ -203,8 +234,8 @@ export class Sim {
    * texels visible looking along s.d at s.p within 2r, with their distances.
    */
   applyStroke(s: Stroke, params: SimParams, footprint?: (p: [number, number, number], d: [number, number, number], radius: number) => { ids: Int32Array; dist: Float32Array }): void {
-    if (s.dye < 0 || s.dye >= this.nDyes) return;
-    const f = this.f[s.dye];
+    if (s.dye >= this.nDyes || (s.dye < 0 && s.dye !== BLEACH)) return;
+    const f = s.dye === BLEACH ? this.bl : this.f[s.dye];
     const volume = Math.max(0, s.pen);
     if (s.kind === 'dip') {
       this.wickPass(true, s.amount, f, () => volume, params);
@@ -241,13 +272,9 @@ export class Sim {
     const b = this.bundle;
     const press = this.press, valid = b.valid, contacts = b.contacts, weights = b.weights;
     const hsum = this.hsum;
-    hsum.fill(0);
-    for (let k = 0; k < this.nDyes; k++) {
-      const h = this.h[k];
-      for (let i = 0; i < n; i++) hsum[i] += h[i];
-    }
-    for (let k = 0; k < this.nDyes; k++) {
-      const f = this.f[k], h = this.h[k], tmp = this.tmp;
+    // 1. diffuse every mobile species from the old values (bleach = index nDyes)
+    for (let k = 0; k <= this.nDyes; k++) {
+      const f = k < this.nDyes ? this.f[k] : this.bl, tmp = k < this.nDyes ? this.tmpK[k] : this.tmpB;
       for (let y = 0; y < M; y++) {
         for (let x = 0; x < N; x++) {
           const i = y * N + x;
@@ -265,11 +292,38 @@ export class Sim {
             if (j < 0) break;
             lap += pz * weights[i * K + c] * (f[j] - fi);
           }
-          tmp[i] = fi + dt * lap;
+          tmp[i] = Math.max(0, fi + dt * lap);
         }
       }
-      // adsorption (Langmuir-style: rate ∝ free dye × remaining capacity)
-      const cap = params.capacity, rate = params.adsorb;
+    }
+    // 2. bleaching: destroy a fraction of every species where there is free bleach,
+    //    spend bleach in proportion, let the rest go off; then tally fixed dye
+    const bl = this.bl, tmpB = this.tmpB, bRate = params.bleach, bDecay = params.bleachDecay;
+    hsum.fill(0);
+    for (let i = 0; i < n; i++) {
+      let b = tmpB[i];
+      if (b > 0) {
+        const e = Math.min(1, bRate * b * dt);
+        if (e > 0) {
+          let tot = 0;
+          for (let k = 0; k < this.nDyes; k++) {
+            const tk = this.tmpK[k], hk = this.h[k];
+            tot += tk[i] + hk[i];
+            tk[i] *= 1 - e;
+            hk[i] *= 1 - e;
+          }
+          b -= STOICH * e * tot;
+        }
+        b -= bDecay * b * dt;
+        if (b < 0) b = 0;
+      }
+      bl[i] = b;
+      for (let k = 0; k < this.nDyes; k++) hsum[i] += this.h[k][i];
+    }
+    // 3. adsorption (Langmuir-style: rate ∝ free dye × remaining capacity)
+    const cap = params.capacity, rate = params.adsorb;
+    for (let k = 0; k < this.nDyes; k++) {
+      const f = this.f[k], h = this.h[k], tmp = this.tmpK[k];
       for (let i = 0; i < n; i++) {
         let fi = tmp[i];
         if (fi <= 0) { f[i] = 0; continue; }

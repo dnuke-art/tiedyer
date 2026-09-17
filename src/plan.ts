@@ -9,10 +9,14 @@ import { TwistParams, DEFAULT_TWIST } from './cloth';
 
 export interface DyeDef { name: string; color: string }
 
+/** stroke.dye value meaning "bleach" (discharge) instead of a dye species */
+export const BLEACH = -1;
+
 export type Side = 'top' | 'bottom';
 
 export type Stroke =
-  /** amount = dye concentration in the liquid; pen = liquid volume in layer-fills (soak) */
+  /** amount = dye concentration in the liquid; pen = liquid volume in layer-fills (soak).
+   *  dye = index into plan.dyes, or BLEACH (-1) for a bleach squirt. */
   | { kind: 'brush'; p: Vec2; r: number; dye: number; amount: number; side: Side; pen: number }
   /** 3D squirt: hit point p, spray direction d (unit), replayed via a visibility render */
   | { kind: 'brush3'; p: [number, number, number]; d: [number, number, number]; r: number; dye: number; amount: number; pen: number }
@@ -40,6 +44,10 @@ export interface SimParams {
   pressFloor: number;
   /** in-plane share of wicking flow relative to layer contacts (0 = none) */
   lateral: number;
+  /** bleach reaction rate: fraction of dye destroyed per step per unit of free bleach */
+  bleach: number;
+  /** bleach self-exhaustion per step (it goes off on its own, faster when rinsed) */
+  bleachDecay: number;
 }
 
 export type Mode = 'fold' | 'twist';
@@ -56,6 +64,10 @@ export interface Plan {
   strokes: Stroke[];
   dyes: DyeDef[];
   params: SimParams;
+  /** cloth colour: index into dyes of a dye fixed uniformly before any fold (-1 = undyed/white) */
+  base: number;
+  /** how deep the cloth colour is, as a fraction of the cloth capacity */
+  baseAmount: number;
 }
 
 export const DEFAULT_DYES: DyeDef[] = [
@@ -73,6 +85,8 @@ export const DEFAULT_PARAMS: SimParams = {
   pressRadius: 1.5,
   pressFloor: 0.0,
   lateral: 0.35,
+  bleach: 0.08,
+  bleachDecay: 0.004,
 };
 
 export function defaultPlan(): Plan {
@@ -87,6 +101,8 @@ export function defaultPlan(): Plan {
     strokes: [],
     dyes: DEFAULT_DYES.map((d) => ({ ...d })),
     params: { ...DEFAULT_PARAMS },
+    base: -1,
+    baseAmount: 0.8,
   };
 }
 
@@ -134,6 +150,28 @@ export function spiralDemoPlan(): Plan {
   return plan;
 }
 
+/**
+ * Demo: bleach on a black shirt. Accordion pleats both ways make a stack of
+ * squares; bleach squirted on the four corners of the stack, top and bottom,
+ * wicks a few layers in and lifts the colour there, the rest stays black.
+ */
+export function bleachDemoPlan(): Plan {
+  const plan = defaultPlan();
+  plan.base = 3;
+  plan.baseAmount = 0.85;
+  let faces = initialFaces(plan.W, plan.H);
+  for (const line of accordionFolds(faces, 'x', 5)) { plan.folds.push(line); faces = applyFold(faces, line); }
+  for (const line of accordionFolds(faces, 'y', 5)) { plan.folds.push(line); faces = applyFold(faces, line); }
+  const b = foldedBBox(faces);
+  const corners: Vec2[] = [
+    { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY },
+  ];
+  for (const side of ['top', 'bottom'] as const) {
+    for (const p of corners) plan.strokes.push({ kind: 'brush', p, r: 3, dye: BLEACH, amount: 1.2, side, pen: 7 });
+  }
+  return plan;
+}
+
 export function serializePlan(plan: Plan): string {
   return JSON.stringify(plan);
 }
@@ -152,5 +190,7 @@ export function parsePlan(json: string): Plan {
     strokes: p.strokes ?? [],
     dyes: p.dyes ?? base.dyes,
     params: { ...base.params, ...(p.params ?? {}) },
+    base: p.base ?? -1,
+    baseAmount: p.baseAmount ?? base.baseAmount,
   };
 }

@@ -4,7 +4,7 @@ import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, 
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
 import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
-import { Plan, Stroke, Mode, defaultPlan, demoPlan, spiralDemoPlan, serializePlan, parsePlan } from './plan';
+import { Plan, Stroke, Mode, BLEACH, defaultPlan, demoPlan, spiralDemoPlan, bleachDemoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { isNative, deliverFile, tap, toBase64 } from './native';
 import { Renderer, ViewOpts } from './render';
@@ -69,7 +69,7 @@ try {
   gpu = null;
 }
 
-const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false, three: false };
+const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, showCreases: true, shadeLayers: false, flip: false, showPress: false, showBleach: true, three: false };
 try { view.three = localStorage.getItem('tiedyer.view3d') === '1'; } catch { /* ignore */ }
 const v2dBtn = document.getElementById('v2d') as HTMLButtonElement;
 const v3dBtn = document.getElementById('v3d') as HTMLButtonElement;
@@ -127,6 +127,7 @@ function touched(): void {
 }
 
 function replay(): void {
+  sim.setBase(plan);
   sim.resetDye();
   const fp = footprintOracle();
   for (const s of plan.strokes) sim.applyStroke(s, plan.params, fp);
@@ -244,10 +245,15 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ..
 const row = (...children: (Node | string)[]) => el('div', { class: 'row' }, ...children);
 const btn = (label: string, onclick: () => void, cls = '') => el('button', { class: cls, onclick }, label);
 
+/** controls re-read their value from the plan when it is replaced (demos, Load, New) */
+const syncers: (() => void)[] = [];
+function syncControls(): void { for (const s of syncers) s(); }
+
 function slider(label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(2)): HTMLElement {
   const val = el('span', { class: 'val' }, fmt(get()));
   const input = el('input', { type: 'range', min, max, step, value: get() }) as HTMLInputElement;
   input.addEventListener('input', () => { set(parseFloat(input.value)); val.textContent = fmt(parseFloat(input.value)); });
+  syncers.push(() => { input.value = String(get()); val.textContent = fmt(get()); });
   return row(el('label', {}, label), input, val);
 }
 
@@ -258,6 +264,7 @@ function logSlider(label: string, min: number, max: number, get: () => number, s
   const val = el('span', { class: 'val' }, fmt(get()));
   const input = el('input', { type: 'range', min: 0, max: 1, step: 0.001, value: toPos(get()) }) as HTMLInputElement;
   input.addEventListener('input', () => { const v = Math.exp(lo + parseFloat(input.value) * (hi - lo)); set(v); val.textContent = fmt(v); });
+  syncers.push(() => { input.value = String(toPos(get())); val.textContent = fmt(get()); });
   return row(el('label', {}, label), input, val);
 }
 
@@ -271,6 +278,7 @@ function checkbox(label: string, get: () => boolean, set: (v: boolean) => void):
   const input = el('input', { type: 'checkbox' }) as HTMLInputElement;
   input.checked = get();
   input.addEventListener('change', () => set(input.checked));
+  syncers.push(() => { input.checked = get(); });
   return el('label', { class: 'row' }, input, label);
 }
 
@@ -282,7 +290,7 @@ const toolButtons: Record<Tool, HTMLButtonElement> = {} as never;
 const toolHint = document.getElementById('tool-hint')!;
 const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
-  dye: 'drag to squirt dye on the side you are viewing',
+  dye: 'drag to squirt dye (or bleach) on the side you are viewing',
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
   centre: 'click the flat cloth where you pinch',
@@ -316,7 +324,12 @@ function refreshFoldList(): void {
 }
 
 const swatchWrap = el('div', { class: 'swatches' });
+const baseWrap = el('div', { class: 'swatches' });
+const baseDepth = slider('cloth depth', 0.1, 1, 0.05, () => plan.baseAmount, (v) => { plan.baseAmount = v; replay(); touched(); });
 function refreshSwatches(): void {
+  syncControls();
+  const bleach = el('div', { class: 'swatch bleach' + (brush.dye === BLEACH ? ' on' : ''), title: 'bleach: removes dye instead of adding it' }, 'BL');
+  bleach.addEventListener('click', () => { brush.dye = BLEACH; refreshSwatches(); });
   swatchWrap.replaceChildren(
     ...plan.dyes.map((d, k) => {
       const color = el('input', { type: 'color', value: d.color, title: d.name }) as HTMLInputElement;
@@ -325,7 +338,21 @@ function refreshSwatches(): void {
       sw.addEventListener('click', () => { brush.dye = k; refreshSwatches(); });
       return sw;
     }),
+    bleach,
   );
+  // cloth colour: white, or one of the dyes fixed uniformly before folding
+  const pick = (k: number) => { plan.base = k; replay(); touched(); refreshSwatches(); };
+  const white = el('div', { class: 'swatch base white' + (plan.base < 0 ? ' on' : ''), title: 'undyed (white) cloth' });
+  white.addEventListener('click', () => pick(-1));
+  baseWrap.replaceChildren(
+    white,
+    ...plan.dyes.map((d, k) => {
+      const sw = el('div', { class: 'swatch base' + (plan.base === k ? ' on' : ''), title: `cloth pre-dyed ${d.name}`, style: `background:${d.color}` });
+      sw.addEventListener('click', () => pick(k));
+      return sw;
+    }),
+  );
+  baseDepth.hidden = plan.base < 0;
 }
 
 const playBtn = btn('▶ Play', () => setPlaying(!playing));
@@ -389,6 +416,7 @@ function buildSidebar(): void {
       btn('New', () => { plan = defaultPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); }),
       btn('Kikko', () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
       btn('Spiral', () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); }),
+      btn('Bleach', () => { plan = bleachDemoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
       btn('Image', saveImage),
@@ -410,6 +438,8 @@ function buildSidebar(): void {
     ),
     el('details', { open: true },
       el('summary', {}, 'Dye & bindings'),
+      row(el('label', {}, 'cloth'), baseWrap),
+      baseDepth,
       el('div', { class: 'row tools' }, toolButtons.inspect, toolButtons.dye, toolButtons.band),
       swatchWrap,
       slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
@@ -419,7 +449,7 @@ function buildSidebar(): void {
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
-      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Bands and clamps squeeze layers so they hold less and stop the front.'),
+      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
@@ -433,7 +463,9 @@ function buildSidebar(): void {
       slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; pressChanged(); }, (v) => v.toFixed(1)),
       slider('band leak', 0, 1, 0.02, () => plan.params.pressFloor, (v) => { plan.params.pressFloor = v; pressChanged(); }),
       slider('sideways wick', 0, 1, 0.05, () => plan.params.lateral, (v) => { plan.params.lateral = v; replay(); touched(); }),
-      el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye. Sideways wick = how much of a squirt spreads within a layer versus into the next.'),
+      slider('bleach power', 0, 0.3, 0.005, () => plan.params.bleach, (v) => { plan.params.bleach = v; touched(); }, (v) => v.toFixed(3)),
+      slider('bleach fade', 0, 0.05, 0.001, () => plan.params.bleachDecay, (v) => { plan.params.bleachDecay = v; touched(); }, (v) => v.toFixed(3)),
+      el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye. Sideways wick = how much of a squirt spreads within a layer versus into the next. Bleach power = how fast bleach eats dye; bleach fade = how fast it goes off by itself.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'View'),
@@ -443,6 +475,7 @@ function buildSidebar(): void {
       checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
       checkbox('Shade by layer count', () => view.shadeLayers, (v) => { view.shadeLayers = v; dirty = true; }),
       checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; dirtyDye = true; }),
+      checkbox('Tint free bleach', () => view.showBleach, (v) => { view.showBleach = v; dirty = true; dirtyDye = true; }),
       slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; dirtyDye = true; }, (v) => v.toFixed(1)),
     ),
     el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke'),
@@ -779,7 +812,10 @@ function batchDone(): boolean {
     const f = sim.f[k], h = sim.h[k];
     for (let i = 0; i < f.length; i++) { free += f[i]; total += f[i] + h[i]; }
   }
-  return total > 0 && free < 0.002 * total;
+  const bl = sim.bl;
+  for (let i = 0; i < bl.length; i++) { free += bl[i]; total += bl[i]; }
+  // done when almost nothing mobile is left, relative to the dye on the cloth or in absolute terms
+  return free < 0.002 * total || free < 1e-4 * bl.length;
 }
 
 function setPlaying(on: boolean): void {

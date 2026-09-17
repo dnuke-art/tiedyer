@@ -13,6 +13,8 @@ export interface ViewOpts {
   shadeLayers: boolean;
   flip: boolean;
   showPress: boolean;
+  /** tint texels that hold free bleach (it is colourless on white cloth otherwise) */
+  showBleach: boolean;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -48,6 +50,17 @@ export function paintTexture(sim: Sim, dyes: DyeDef[], opts: ViewOpts, img: Imag
     data[o + 1] = 255 * Math.exp(s * lg);
     data[o + 2] = 255 * Math.exp(s * lb);
     data[o + 3] = 255;
+  }
+  if (opts.showBleach && !opts.fixedOnly) {
+    const bl = sim.bl;
+    for (let i = 0; i < n; i++) {
+      const t = 0.4 * Math.min(1, bl[i]);
+      if (t <= 0) continue;
+      const o = i * 4;
+      data[o] = data[o] * (1 - t) + 184 * t;
+      data[o + 1] = data[o + 1] * (1 - t) + 224 * t;
+      data[o + 2] = data[o + 2] * (1 - t) + 240 * t;
+    }
   }
   if (opts.showPress) {
     for (let i = 0; i < n; i++) {

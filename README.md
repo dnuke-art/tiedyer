@@ -37,6 +37,19 @@ dh/dt = adsorption          (h = fixed dye, survives rinsing; f = free dye)
 
 Adsorption is Langmuir-style: rate ∝ free dye × remaining capacity. "Rinse" shows only `h`.
 
+**Bleach is a fifth liquid.** It wicks and diffuses exactly like dye, but instead of
+fixing it destroys dye: where free bleach `b` sits on a texel, a fraction `rate·b` of
+every species (free and fixed) goes per step, the bleach is spent in proportion, and the
+rest goes off on its own (the "bleach fade" slider). Squirt it with the BL swatch, or dip
+the whole bundle in it. A cloth colour (the "cloth" swatches) is a dye fixed uniformly
+before the first stroke, so a solid black shirt can be discharged, and dye squirted on top
+of a bleached area takes again because bleaching frees up capacity.
+
+```
+db/dt = D∇²b + dZ·(b_up - b) + dZ·(b_down - b) - STOICH·rate·b·(Σf + Σh) - decay·b
+df/dt, dh/dt: as above, minus rate·b·f and rate·b·h
+```
+
 **Squirting is wicking, not diffusion.** A brush stroke pours a liquid volume (the "soak"
 value, in layer-fills) onto the surface. Each layer holds one fill's worth of liquid,
 less where it is squeezed by a binding, and the excess passes to the next layer: a
@@ -47,8 +60,8 @@ layer stops the front. Diffusion then only smooths what wicking put in place, wh
 also the order things happen in a real bundle.
 
 **Solver.** The step runs as a WebGL2 fragment shader (`src/gpu.ts`): `f` and `h` are
-RGBA32F textures (one channel per dye), the layer links and press field are two static
-textures, and two framebuffers ping-pong with multiple render targets. Colour mapping is a
+RGBA32F textures (one channel per dye) and `b` a third, the layer links and press field
+are two static textures, and two framebuffers ping-pong with three render targets. Colour mapping is a
 second shader whose output canvas is drawn into both views. The CPU implementation in
 `src/sim.ts` is the reference and the fallback when float render targets are missing; the
 two agree to float precision. Strokes are applied on the CPU arrays (download, apply,
