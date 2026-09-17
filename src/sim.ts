@@ -48,6 +48,7 @@ export class Sim {
   private tmpB = new Float32Array(0);
   private hsum = new Float32Array(0);
   private vol = new Float32Array(0);
+  private pending = new Float32Array(0);
   private depth = new Int32Array(0);
   private order = new Int32Array(0);
 
@@ -69,6 +70,7 @@ export class Sim {
     this.press = new Float32Array(n).fill(1);
     this.hsum = new Float32Array(n);
     this.vol = new Float32Array(n);
+    this.pending = new Float32Array(n);
     this.depth = new Int32Array(n);
     this.order = new Int32Array(n);
     this.f = [];
@@ -145,11 +147,11 @@ export class Sim {
 
   /**
    * Wicking. Liquid poured onto exposed texels fills their pores and the excess
-   * passes along the contact graph to the next layer, a saturation front. Each
-   * texel absorbs `press` worth of liquid (a squeezed layer holds less, a fully
-   * pressed one blocks). Excess is split among contacts one hop further from the
-   * surface, by contact weight. Liquid arriving at an already-wet texel mixes in.
-   * `volumeAt(i)` gives the liquid volume (in layer-fills) poured on entry texel i.
+   * passes along the contact graph to the next layer, a saturation front (see
+   * wickFrom for the flood rule). Each texel absorbs `press` worth of liquid (a
+   * squeezed layer holds less, a fully pressed one blocks). Liquid arriving at an
+   * already-wet texel mixes in. `volumeAt(i)` gives the liquid volume (in
+   * layer-fills) poured on entry texel i.
    */
   private wickPass(fromTop: boolean, conc: number, f: Float32Array, volumeAt: (i: number) => number, params: SimParams): void {
     const b = this.bundle, n = b.n;
@@ -164,24 +166,28 @@ export class Sim {
   }
 
   /**
-   * Layered flow from an explicit entry set. Neighbours are the bundle's layer
-   * contacts (weight as given) and the four in-plane texel neighbours (weight
+   * Layered flow from an explicit entry set: a capacity flood. Every texel holds
+   * `press` worth of liquid (a squeezed layer less, a fully pressed one nothing).
+   * Liquid poured on a texel fills it; the overflow is split among its neighbours
+   * that still have room, by weight, and any of those that fill up pass their own
+   * overflow on, in arrival order. Neighbours are the bundle's layer contacts
+   * (weight as given) and the four in-plane texel neighbours (weight
    * params.lateral), so liquid poured on an edge wicks inward as well as across.
+   * Overflow with nowhere to go drips off. Because liquid can enter a texel from
+   * any neighbour with excess, not only from the one that happened to reach it
+   * first, the front has no dry seams where the parent set changes (e.g. under the
+   * edge of a layer above).
    */
   wickFrom(ids: ArrayLike<number>, vols: ArrayLike<number>, conc: number, f: Float32Array, params: SimParams): void {
     const b = this.bundle, N = this.N, M = this.M;
-    const vol = this.vol, depth = this.depth, order = this.order;
+    const vol = this.vol, pending = this.pending, queued = this.depth, queue = this.order;
     const lat = params.lateral;
+    const press = this.press;
     vol.fill(0);
-    depth.fill(-1);
+    pending.fill(0);
+    queued.fill(0);
     let head = 0, tail = 0;
-    for (let k = 0; k < ids.length; k++) {
-      const i = ids[k];
-      if (!b.valid[i] || vols[k] <= 0) continue;
-      vol[i] += vols[k];
-      if (depth[i] < 0) { depth[i] = 0; order[tail++] = i; }
-    }
-    // neighbour iteration shared by BFS and flow: layer contacts then grid neighbours
+    // neighbour iteration: layer contacts then grid neighbours
     const nb = new Int32Array(K + 4), nw = new Float32Array(K + 4);
     const neighbours = (i: number): number => {
       let c = 0;
@@ -199,33 +205,38 @@ export class Sim {
       }
       return c;
     };
-    // BFS assigns each reachable texel its hop distance from the entry set
-    while (head < tail) {
-      const i = order[head++];
-      const d = depth[i] + 1;
-      const c = neighbours(i);
-      for (let k = 0; k < c; k++) {
-        const j = nb[k];
-        if (depth[j] < 0) { depth[j] = d; order[tail++] = j; }
-      }
-    }
-    // flow in BFS order: absorb, pass the excess one hop deeper by weight
-    for (let q = 0; q < tail; q++) {
-      const i = order[q];
-      const v = vol[i];
-      if (v <= 0) continue;
-      const pi = this.press[i];
-      if (pi <= 0.05) continue; // squeezed shut: absorbs nothing, passes nothing
-      const a = Math.min(v, pi);
-      f[i] += a * conc;
+    /** pour v onto texel i: absorb what fits, queue the rest as overflow */
+    const pour = (i: number, v: number): void => {
+      const cap = press[i] <= 0.05 ? 0 : press[i]; // squeezed shut: holds nothing, passes nothing
+      const room = cap - vol[i];
+      const a = room > 0 ? Math.min(v, room) : 0;
+      if (a > 0) { vol[i] += a; f[i] += a * conc; }
       const excess = v - a;
-      if (excess <= 0) continue;
-      const d = depth[i] + 1;
+      if (excess <= 1e-9 || cap <= 0) return;
+      pending[i] += excess;
+      if (!queued[i]) { queued[i] = 1; queue[tail++] = i; }
+    };
+    for (let k = 0; k < ids.length; k++) {
+      const i = ids[k];
+      if (b.valid[i] && vols[k] > 0) pour(i, vols[k]);
+    }
+    // a texel is queued only once it is full, so each texel is processed at most once
+    while (head < tail) {
+      const i = queue[head++];
+      const e = pending[i];
+      pending[i] = 0;
+      if (e <= 0) continue;
       const c = neighbours(i);
       let wsum = 0;
-      for (let k = 0; k < c; k++) if (depth[nb[k]] === d) wsum += nw[k];
-      if (wsum <= 0) continue;
-      for (let k = 0; k < c; k++) if (depth[nb[k]] === d) vol[nb[k]] += excess * nw[k] / wsum;
+      for (let k = 0; k < c; k++) {
+        const j = nb[k];
+        if (press[j] > 0.05 && vol[j] < press[j] - 1e-6) wsum += nw[k];
+      }
+      if (wsum <= 0) continue; // nowhere to go: drips off
+      for (let k = 0; k < c; k++) {
+        const j = nb[k];
+        if (press[j] > 0.05 && vol[j] < press[j] - 1e-6) pour(j, e * nw[k] / wsum);
+      }
     }
   }
 

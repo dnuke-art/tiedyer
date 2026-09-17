@@ -53,13 +53,15 @@ df/dt, dh/dt: as above, minus rate·b·f and rate·b·h
 ```
 
 **Squirting is wicking, not diffusion.** A brush stroke pours a liquid volume (the "soak"
-value, in layer-fills) onto the surface. Each layer holds one fill's worth of liquid,
-less where it is squeezed by a binding, and the excess passes to the next layer: a
-saturation front. Every texel works out its own reach from the pre-stroke capacity of
-the layers between it and the surface at its own bundle position, so mirrored layers
-whose texel grids are offset by half a texel still get a smooth front. A fully pressed
-layer stops the front. Diffusion then only smooths what wicking put in place, which is
-also the order things happen in a real bundle.
+value, in layer-fills) onto the surface. Each texel holds one fill's worth of liquid,
+less where it is squeezed by a binding, and the overflow is split among its neighbours
+that still have room (layer contacts by weight, in-plane neighbours by "sideways wick");
+any of those that fill up pass their own overflow on, in arrival order, so the liquid
+advances as a saturation front through the stack. Because a texel can be filled from any
+neighbour with excess, not only from the one that reached it first, there are no dry seams
+where the set of feeding texels changes, such as under the edge of the layer above. A fully
+pressed layer stops the front; overflow with nowhere to go drips off. Diffusion then only
+smooths what wicking put in place, which is also the order things happen in a real bundle.
 
 **Solver.** The step runs as a WebGL2 fragment shader (`src/gpu.ts`): `f` and `h` are
 RGBA32F textures (one channel per dye) and `b` a third, the layer links and press field
