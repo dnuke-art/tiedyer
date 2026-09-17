@@ -370,10 +370,16 @@ function refreshSwatches(): void {
   bleach.addEventListener('click', () => { brush.dye = BLEACH; refreshSwatches(); });
   swatchWrap.replaceChildren(
     ...plan.dyes.map((d, k) => {
-      const color = el('input', { type: 'color', value: d.color, title: d.name }) as HTMLInputElement;
-      color.addEventListener('input', () => { d.color = color.value; dirty = true; dirtyDye = true; touched(); });
-      const sw = el('div', { class: 'swatch' + (k === brush.dye ? ' on' : ''), title: d.name }, color);
-      sw.addEventListener('click', () => { brush.dye = k; refreshSwatches(); });
+      // first click selects the dye; a click on the selected swatch opens the colour picker
+      const color = el('input', { type: 'color', value: d.color, tabindex: -1, 'aria-label': `${d.name} colour` }) as HTMLInputElement;
+      const sw = el('div', { class: 'swatch' + (k === brush.dye ? ' on' : ''), title: `${d.name} · click again to change the colour`, style: `background:${d.color}` }, color);
+      color.addEventListener('input', () => { d.color = color.value; sw.style.background = d.color; dirty = true; dirtyDye = true; touched(); });
+      color.addEventListener('change', () => refreshSwatches()); // picker closed: cloth swatches pick up the new colour
+      sw.addEventListener('click', () => {
+        if (brush.dye !== k) { brush.dye = k; refreshSwatches(); return; }
+        if (typeof color.showPicker === 'function') { try { color.showPicker(); return; } catch { /* fall through */ } }
+        color.click();
+      });
       return sw;
     }),
     bleach,
