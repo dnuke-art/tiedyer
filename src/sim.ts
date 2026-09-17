@@ -23,6 +23,9 @@ import { BandStamp, Stroke, SimParams, Plan, BLEACH } from './plan';
 
 /** bleach spent per unit of dye destroyed */
 export const STOICH = 0.5;
+/** when liquid flows through a texel that is already full, this fraction of the
+ *  smaller of (held, passing) volume is exchanged with what the texel holds */
+export const MIX = 0.5;
 
 export class Sim {
   N = 0;
@@ -41,13 +44,15 @@ export class Sim {
   h: Float32Array[] = [];
   /** free bleach */
   bl = new Float32Array(0);
+  /** liquid held per texel, in layer-fills (0 .. press); the cloth stays wet between
+   *  strokes, so a second squirt on the same spot pushes through instead of piling up */
+  wet = new Float32Array(0);
   /** cloth colour: dye index (-1 = none) and fixed amount per texel */
   base = -1;
   baseFixed = 0;
   private tmpK: Float32Array[] = [];
   private tmpB = new Float32Array(0);
   private hsum = new Float32Array(0);
-  private vol = new Float32Array(0);
   private pending = new Float32Array(0);
   private depth = new Int32Array(0);
   private order = new Int32Array(0);
@@ -69,7 +74,7 @@ export class Sim {
     const n = this.N * this.M;
     this.press = new Float32Array(n).fill(1);
     this.hsum = new Float32Array(n);
-    this.vol = new Float32Array(n);
+    this.wet = new Float32Array(n);
     this.pending = new Float32Array(n);
     this.depth = new Int32Array(n);
     this.order = new Int32Array(n);
@@ -138,6 +143,7 @@ export class Sim {
   resetDye(): void {
     for (let k = 0; k < this.nDyes; k++) { this.f[k].fill(0); this.h[k].fill(0); }
     this.bl.fill(0);
+    this.wet.fill(0);
     if (this.base >= 0 && this.baseFixed > 0) {
       const h = this.h[this.base], valid = this.bundle?.valid;
       for (let i = 0; i < h.length; i++) if (!valid || valid[i]) h[i] = this.baseFixed;
@@ -177,13 +183,18 @@ export class Sim {
    * any neighbour with excess, not only from the one that happened to reach it
    * first, the front has no dry seams where the parent set changes (e.g. under the
    * edge of a layer above).
+   *
+   * The cloth stays wet between strokes (`wet`): a texel that is already full takes
+   * no more liquid, so squirting the same spot again pushes the front deeper rather
+   * than stacking dye without limit. Liquid passing through a full texel exchanges
+   * a share (MIX) with what it holds, so a new colour poured on a wet spot mixes in.
    */
   wickFrom(ids: ArrayLike<number>, vols: ArrayLike<number>, conc: number, f: Float32Array, params: SimParams): void {
     const b = this.bundle, N = this.N, M = this.M;
-    const vol = this.vol, pending = this.pending, queued = this.depth, queue = this.order;
+    const wet = this.wet, pending = this.pending, queued = this.depth, queue = this.order;
     const lat = params.lateral;
     const press = this.press;
-    vol.fill(0);
+    const species = [...this.f, this.bl];
     pending.fill(0);
     queued.fill(0);
     let head = 0, tail = 0;
@@ -205,14 +216,22 @@ export class Sim {
       }
       return c;
     };
-    /** pour v onto texel i: absorb what fits, queue the rest as overflow */
+    /** pour v onto texel i: absorb what fits, exchange with held liquid, queue the rest as overflow */
     const pour = (i: number, v: number): void => {
       const cap = press[i] <= 0.05 ? 0 : press[i]; // squeezed shut: holds nothing, passes nothing
-      const room = cap - vol[i];
+      const room = cap - wet[i];
       const a = room > 0 ? Math.min(v, room) : 0;
-      if (a > 0) { vol[i] += a; f[i] += a * conc; }
+      if (a > 0) { wet[i] += a; f[i] += a * conc; }
       const excess = v - a;
       if (excess <= 1e-9 || cap <= 0) return;
+      // flow-through: part of the held liquid is swapped for the passing liquid
+      const w = wet[i];
+      if (w > 0 && MIX > 0) {
+        const x = Math.min(w, excess) * MIX;
+        const keep = 1 - x / w;
+        for (const sp of species) sp[i] *= keep;
+        f[i] += x * conc;
+      }
       pending[i] += excess;
       if (!queued[i]) { queued[i] = 1; queue[tail++] = i; }
     };
@@ -230,12 +249,12 @@ export class Sim {
       let wsum = 0;
       for (let k = 0; k < c; k++) {
         const j = nb[k];
-        if (press[j] > 0.05 && vol[j] < press[j] - 1e-6) wsum += nw[k];
+        if (press[j] > 0.05 && wet[j] < press[j] - 1e-6) wsum += nw[k];
       }
       if (wsum <= 0) continue; // nowhere to go: drips off
       for (let k = 0; k < c; k++) {
         const j = nb[k];
-        if (press[j] > 0.05 && vol[j] < press[j] - 1e-6) pour(j, e * nw[k] / wsum);
+        if (press[j] > 0.05 && wet[j] < press[j] - 1e-6) pour(j, e * nw[k] / wsum);
       }
     }
   }

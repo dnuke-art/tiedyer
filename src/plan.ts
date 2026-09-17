@@ -167,7 +167,7 @@ export function bleachDemoPlan(): Plan {
     { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY },
   ];
   for (const side of ['top', 'bottom'] as const) {
-    for (const p of corners) plan.strokes.push({ kind: 'brush', p, r: 3, dye: BLEACH, amount: 1.2, side, pen: 7 });
+    for (const p of corners) plan.strokes.push({ kind: 'brush', p, r: 3.5, dye: BLEACH, amount: 1.5, side, pen: 11 });
   }
   return plan;
 }

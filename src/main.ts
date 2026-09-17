@@ -108,7 +108,7 @@ const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1 };
 /** A squirt still being poured: while the button stays down on the spot, its soak grows
  *  by `flow` × the soak setting per second and the squirt is re-applied from the snapshot
  *  taken before it, so the liquid front keeps moving down through the layers. */
-let hold: { stroke: Stroke; pen0: number; snap: Float32Array; t0: number } | null = null;
+let hold: { stroke: Stroke; pen0: number; snap: Float32Array[]; wet: Float32Array; t0: number } | null = null;
 const HOLD_MAX_PEN = 400;
 let playing = false;
 const budgetMs = 8;
@@ -565,8 +565,7 @@ function addStroke(s: Stroke, holdable = false): void {
   gpu?.download();
   hold = null;
   if (holdable && s.kind !== 'dip') {
-    const target = s.dye === BLEACH ? sim.bl : sim.f[s.dye];
-    if (target) hold = { stroke: s, pen0: s.pen, snap: target.slice(), t0: performance.now() };
+    hold = { stroke: s, pen0: s.pen, snap: [...sim.f, sim.bl].map((a) => a.slice()), wet: sim.wet.slice(), t0: performance.now() };
   }
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();
@@ -788,8 +787,8 @@ function pourHeld(): void {
   const pen = Math.min(HOLD_MAX_PEN, hold.pen0 * (1 + brush.flow * (performance.now() - hold.t0) / 1000));
   if (pen < hold.stroke.pen * 1.02) return; // nothing worth re-wicking yet
   const s = hold.stroke;
-  const target = s.dye === BLEACH ? sim.bl : sim.f[s.dye];
-  target.set(hold.snap);
+  [...sim.f, sim.bl].forEach((a, k) => a.set(hold!.snap[k]));
+  sim.wet.set(hold.wet);
   s.pen = pen;
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();

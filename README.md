@@ -60,8 +60,12 @@ any of those that fill up pass their own overflow on, in arrival order, so the l
 advances as a saturation front through the stack. Because a texel can be filled from any
 neighbour with excess, not only from the one that reached it first, there are no dry seams
 where the set of feeding texels changes, such as under the edge of the layer above. A fully
-pressed layer stops the front; overflow with nowhere to go drips off. Diffusion then only
-smooths what wicking put in place, which is also the order things happen in a real bundle.
+pressed layer stops the front; overflow with nowhere to go drips off. The cloth stays wet
+between strokes: a full texel takes no more liquid, so squirting the same spot again pushes
+the front deeper instead of stacking dye without limit, and liquid passing through a full
+texel swaps a share with what it holds, so a new colour on a wet spot mixes in. Diffusion
+then only smooths what wicking put in place, which is also the order things happen in a real
+bundle.
 
 **Solver.** The step runs as a WebGL2 fragment shader (`src/gpu.ts`): `f` and `h` are
 RGBA32F textures (one channel per dye) and `b` a third, the layer links and press field
