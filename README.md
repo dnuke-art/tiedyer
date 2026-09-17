@@ -22,7 +22,9 @@ npm run build    # -> dist/
 moving part gets `T' = Reflect(line) ∘ T` and is placed above the entire existing stack
 with its internal order reversed. Because every tie-dye fold is a simple fold through all
 layers, the layer order is exact and free (no NP-hard layer solving). The crease pattern
-in the flat view is just the union of face edges.
+in the flat view is just the union of face edges. While you draw a fold line (click a
+point, move to set the angle, click, then click the side that moves) the creases it would
+make are previewed live on the unfolded cloth, and the moving half is tinted on both views.
 
 **Dye lives on a flat texture.** In-plane diffusion is a 2D Laplacian on the unfolded
 texture (the cloth is continuous across creases). Layer contact is a precomputed per-texel

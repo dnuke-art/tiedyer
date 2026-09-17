@@ -11,7 +11,7 @@
 
 import {
   Vec2, Mat, IDENTITY, apply, mul, invert, reflection, clipPolygon, polygonArea,
-  pointInConvexPolygon, bbox, BBox, bboxContains, det, normalize,
+  pointInConvexPolygon, bbox, BBox, bboxContains, det, normalize, side,
 } from './geom';
 
 export interface Face {
@@ -81,6 +81,43 @@ export function applyFold(faces: Face[], fold: FoldLine): Face[] {
 }
 
 /** Compress z values to consecutive integers 0..k-1 preserving order. */
+/**
+ * Preview of a fold line before it is applied: where it would crease each face,
+ * as segments in FLAT cloth coordinates, and (if the moving side is known) the
+ * parts of the cloth that would move, as flat polygons. Same clipping as applyFold.
+ */
+export function foldPreview(faces: Face[], p: Vec2, d: Vec2, moveSign?: 1 | -1): { creases: [Vec2, Vec2][]; moving: Vec2[][] } {
+  const creases: [Vec2, Vec2][] = [];
+  const moving: Vec2[][] = [];
+  for (const face of faces) {
+    const fp = foldedPolygon(face);
+    const Tinv = invert(face.T);
+    // crossings of the line with the polygon edges (convex: at most two distinct)
+    const hits: Vec2[] = [];
+    for (let i = 0; i < fp.length; i++) {
+      const a = fp[i], b = fp[(i + 1) % fp.length];
+      const sa = side(p, d, a), sb = side(p, d, b);
+      if ((sa >= 0) !== (sb >= 0)) {
+        const t = sa / (sa - sb);
+        hits.push(apply(Tinv, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }));
+      }
+    }
+    if (hits.length >= 2) {
+      let best: [Vec2, Vec2] = [hits[0], hits[1]], bestD = -1;
+      for (let i = 0; i < hits.length; i++) for (let j = i + 1; j < hits.length; j++) {
+        const dd = Math.hypot(hits[i].x - hits[j].x, hits[i].y - hits[j].y);
+        if (dd > bestD) { bestD = dd; best = [hits[i], hits[j]]; }
+      }
+      if (bestD > 1e-6) creases.push(best);
+    }
+    if (moveSign) {
+      const move = clipPolygon(fp, p, d, moveSign);
+      if (move.length >= 3 && Math.abs(polygonArea(move)) > AREA_EPS) moving.push(move.map((q) => apply(Tinv, q)));
+    }
+  }
+  return { creases, moving };
+}
+
 export function renormalizeZ(faces: Face[]): Face[] {
   const zs = Array.from(new Set(faces.map((f) => f.z))).sort((a, b) => a - b);
   const rank = new Map<number, number>();

@@ -1,6 +1,6 @@
 import './style.css';
-import { Vec2, Mat, apply, side, normalize, dist } from './geom';
-import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, Axis } from './fold';
+import { Vec2, Mat, apply, side, normalize, dist, clipPolygon } from './geom';
+import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, foldPreview, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
 import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
@@ -119,6 +119,22 @@ let lastHoverKey = '';
 let lastFlatKey = '';
 
 let foldDraft: Vec2[] = [];
+
+/** The fold line being drawn: first click fixes a point, the pointer sets the angle
+ *  (second click fixes it), then the pointer picks the side that moves. */
+function foldDraftLine(): { p: Vec2; d: Vec2; moveSign?: 1 | -1 } | null {
+  if (tool !== 'fold' || plan.mode !== 'fold' || is3d() || !foldDraft.length) return null;
+  const a = foldDraft[0];
+  const b = foldDraft.length > 1 ? foldDraft[1] : hoverFolded;
+  if (!b || dist(a, b) < 1e-6) return null;
+  const d = normalize({ x: b.x - a.x, y: b.y - a.y });
+  let moveSign: 1 | -1 | undefined;
+  if (foldDraft.length > 1 && hoverFolded) {
+    const s = side(a, d, hoverFolded);
+    if (Math.abs(s) > 1e-6) moveSign = s > 0 ? 1 : -1;
+  }
+  return { p: a, d, moveSign };
+}
 let hoverFolded: Vec2 | null = null;
 let hoverFlat: Vec2 | null = null;
 let dragging = false;
@@ -314,12 +330,20 @@ function refreshModeUI(): void {
   for (const [k, b] of Object.entries(modeButtons)) b.classList.toggle('on', k === plan.mode);
 }
 
+/** what the pointer does right now, shown as a chip on the bundle view */
+const MODE_LABEL: Record<Tool, string> = { inspect: 'inspect', dye: 'dye', band: 'band', fold: 'fold', centre: 'pinch', orbit: 'orbit' };
+const CURSOR: Record<Tool, string> = { inspect: 'help', dye: 'crosshair', band: 'crosshair', fold: 'crosshair', centre: 'crosshair', orbit: 'grab' };
+
 function setTool(t: Tool): void {
   if (t === 'dye' || t === 'band') paintTool = t;
   tool = t;
   foldDraft = [];
   dirty = true;
   paintBtn.classList.toggle('on', isPaint(t));
+  const chip = document.getElementById('mode-chip')!;
+  chip.textContent = MODE_LABEL[t];
+  chip.className = `chip mode-${t}`;
+  foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
   toolHint.textContent = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag or two fingers to orbit, wheel to zoom' : '');
 }
@@ -768,6 +792,33 @@ function frame(): void {
   requestAnimationFrame(frame);
 }
 
+/** scratch layer for the moving-side tint on the folded view */
+const foldTint = document.createElement('canvas');
+
+/** Live preview of the fold being drawn, on the unfolded cloth: every crease the line
+ *  would make (one segment per face it crosses) and, once the side is known, the cloth
+ *  that would move. */
+function drawFoldPreviewFlat(draft: { p: Vec2; d: Vec2; moveSign?: 1 | -1 }): void {
+  const ctx = flatCanvas.getContext('2d')!;
+  const V = renderer.flatView, dpr = renderer.dpr;
+  const { creases, moving } = foldPreview(faces, draft.p, draft.d, draft.moveSign);
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,122,26,0.22)';
+  ctx.beginPath();
+  for (const poly of moving) {
+    poly.forEach((q, i) => { const s = apply(V, q); i ? ctx.lineTo(s.x, s.y) : ctx.moveTo(s.x, s.y); });
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.strokeStyle = '#ff7a1a';
+  ctx.lineWidth = 2 * dpr;
+  ctx.setLineDash([6 * dpr, 4 * dpr]);
+  ctx.beginPath();
+  for (const [a, b] of creases) { const s = apply(V, a), e = apply(V, b); ctx.moveTo(s.x, s.y); ctx.lineTo(e.x, e.y); }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** markers, brush cursor and band drag on the transparent canvas above the 3D view */
 function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
   const c = foldedCanvas;
@@ -867,7 +918,9 @@ function renderOnce(): void {
       hoverInfo = `flat (${hoverFlat.x.toFixed(1)}, ${hoverFlat.y.toFixed(1)}) → bundle (${p.x.toFixed(1)}, ${p.y.toFixed(1)}), height ${bundle.pz[i].toFixed(2)} cm, layer ${pos + 1} of ${col.length} from top`;
     }
   }
-  if (hoverFolded && isFold(bundle)) {
+  if (hoverFolded && tool === 'fold' && foldDraft.length) {
+    // drawing a fold: the crease preview replaces the per-layer markers
+  } else if (hoverFolded && isFold(bundle)) {
     let col = facesAtFolded(bundle.index, hoverFolded);
     if (view.flip) col = col.reverse();
     for (const fi of col) flatMarkers.push(apply(bundle.index.Tinv[fi], hoverFolded));
@@ -894,10 +947,13 @@ function renderOnce(): void {
     }
   }
 
-  const flatKey = `${texVersion}|${hoverFace}|${flatMarkers.map((m) => `${m.x.toFixed(2)},${m.y.toFixed(2)}`).join(';')}|${view.showCreases}|${flatCanvas.clientWidth}x${flatCanvas.clientHeight}|${geomVersion}|${plan.mode}${tool === 'centre' ? '|c' : ''}`;
+  const draft = foldDraftLine();
+  const draftKey = draft ? `|fd${draft.p.x.toFixed(2)},${draft.p.y.toFixed(2)},${draft.d.x.toFixed(4)},${draft.d.y.toFixed(4)},${draft.moveSign ?? 0}` : '';
+  const flatKey = `${texVersion}|${hoverFace}|${flatMarkers.map((m) => `${m.x.toFixed(2)},${m.y.toFixed(2)}`).join(';')}|${view.showCreases}|${flatCanvas.clientWidth}x${flatCanvas.clientHeight}|${geomVersion}|${plan.mode}${tool === 'centre' ? '|c' : ''}${draftKey}`;
   if (flatKey !== lastFlatKey) {
     lastFlatKey = flatKey;
     renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
+    if (draft) drawFoldPreviewFlat(draft);
   }
   if (plan.mode === 'twist' && tool === 'centre' && flatKey === lastFlatKey) {
     const ctx = flatCanvas.getContext('2d')!;
@@ -916,6 +972,29 @@ function renderOnce(): void {
       ctx.stroke();
     }
     if (tool === 'fold' && foldDraft.length) {
+      if (draft?.moveSign) {
+        // the moving parts of all layers overlap in the folded view (and mirrored faces
+        // wind the other way), so paint them opaque on a scratch layer and blend that once
+        const c = ctx.canvas;
+        if (foldTint.width !== c.width || foldTint.height !== c.height) { foldTint.width = c.width; foldTint.height = c.height; }
+        const t = foldTint.getContext('2d')!;
+        t.setTransform(1, 0, 0, 1, 0, 0);
+        t.clearRect(0, 0, c.width, c.height);
+        t.fillStyle = '#ff7a1a';
+        for (const f of faces) {
+          const poly = clipPolygon(f.flat.map((q) => apply(f.T, q)), draft.p, draft.d, draft.moveSign);
+          if (poly.length < 3) continue;
+          t.beginPath();
+          poly.forEach((q, i) => { const s = apply(V, q); i ? t.lineTo(s.x, s.y) : t.moveTo(s.x, s.y); });
+          t.closePath();
+          t.fill();
+        }
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 0.28;
+        ctx.drawImage(foldTint, 0, 0);
+        ctx.restore();
+      }
       const a = apply(V, foldDraft[0]);
       const b = foldDraft.length > 1 ? apply(V, foldDraft[1]) : (hoverFolded ? apply(V, hoverFolded) : null);
       ctx.fillStyle = '#ff7a1a';
