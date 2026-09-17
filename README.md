@@ -124,7 +124,8 @@ weave anisotropy, evaporation. The twist takes about 15 s at 101² particles.
 
 See `BRIEF.md` for the kickoff brief and prior-art links, `PRODUCT.md` for the product
 brief, `ROADMAP.md` for what comes next and where this could go beyond tie-dye, and
-`docs/3d-view.md` for a write-up of how the 3D view was built.
+`docs/3d-view.md` for a write-up of how the 3D view was built, and `docs/web-and-ios.md` for how the
+website and the iOS app are the same app and where they differ.
 
 ## iOS app
 
