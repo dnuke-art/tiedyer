@@ -37,6 +37,44 @@
         <div id="status"></div>
       </main>
     </div>
+    <dialog id="help" aria-labelledby="help-title">
+      <div class="help-body">
+        <header>
+          <h2 id="help-title">How Tie Dyer works</h2>
+          <button id="help-close" class="small" aria-label="Close help">Close</button>
+        </header>
+
+        <h3>The two views</h3>
+        <p>The <b>flat cloth</b> is the shirt unfolded: the pattern you will get. The <b>folded bundle</b> is what you actually squirt. Everything you do to the bundle shows up on the flat cloth at once, and hovering either view shows where that point sits in the other.</p>
+
+        <h3>Fold, then bind, then dye</h3>
+        <p>Use the Shape section to fold: accordion pleats, zigzag triangles, diagonals, or draw your own fold line (click a point, move to set the angle, click, then click the side that moves; the creases it would make are previewed on the flat cloth as you go). Twist mode pinches the centre and winds the cloth into a spiral instead. Bands and clamps squeeze the layers so dye cannot get in.</p>
+
+        <h3>Squirting is wicking</h3>
+        <p>A squirt pours liquid onto the bundle and it wicks through the layers right away, top layer first, then the next, until the liquid is used up. <b>Soak</b> is how much liquid one squirt puts out, in layers: soak 1 fills the top layer under the nozzle, soak 10 reaches ten layers down. The dye goes wherever the liquid goes. This decides the reach of every squirt before any diffusion happens, which is also how it works with a real squeeze bottle.</p>
+
+        <h3>Working a spot</h3>
+        <ul>
+          <li><b>Hold the button still</b> and the squirt keeps pouring: its soak grows every second (<b>hold flow</b>), so the front moves deeper while you wait. This is the way to reach layers one squirt cannot. Set hold flow to off for pure click-and-stamp painting.</li>
+          <li><b>Go over an area again</b> and it gets darker, up to the <b>build-up</b> limit, then stops. The cloth remembers it is wet: a full spot takes no more liquid, extra liquid pushes deeper, and a new colour on a wet spot mixes in. Build-up 0 means a colour can never get stronger than one squirt.</li>
+          <li>Whatever you did is saved as strokes. Rewind, Load and every fold change replay them exactly.</li>
+        </ul>
+
+        <h3>Batch: let it sit</h3>
+        <p>▶ Play runs the hours in the bag. Free dye <b>spreads</b> within a layer, bleeds <b>thru layers</b> where they touch, and <b>fixes</b> to the fibres at the <b>fixing rate</b> until the cloth's <b>capacity</b> is used. Fixed dye is what survives the rinse; tick <b>Rinse</b> to see only that. Play pauses itself when nothing is left to move.</p>
+
+        <h3>Bleach</h3>
+        <p>The <b>BL</b> swatch squirts bleach instead of dye. It wicks and spreads like dye but removes colour wherever it reaches, fixed or not, and fades as it works (<b>bleach power</b>, <b>bleach fade</b>). Pick a <b>cloth</b> colour to start from a solid shirt and discharge a pattern out of it. Free bleach is tinted pale blue so you can see it on white cloth.</p>
+
+        <h3>3D</h3>
+        <p>Switch the bundle to 3D to orbit it and squirt from any side, including the edges of a stack. <b>Paint</b> on: a drag squirts or bands. Paint off: a drag orbits. Right-drag and two fingers always orbit, the wheel and pinch zoom.</p>
+
+        <h3>Mouse and keys</h3>
+        <p>Drag to squirt or band. Hold still to keep pouring. <kbd>space</kbd> play/pause · <kbd>z</kbd> undo stroke · <kbd>esc</kbd> cancel a fold line · <kbd>?</kbd> this help. On a phone the controls are behind the ☰ button.</p>
+
+        <p class="note">Full write-up: docs/dye-model.md in the source repository.</p>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

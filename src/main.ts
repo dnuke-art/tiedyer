@@ -463,6 +463,7 @@ function buildSidebar(): void {
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
       btn('Image', saveImage),
+      btn('Help', openHelp),
     ),
     el('details', { open: true },
       el('summary', {}, 'Cloth'),
@@ -523,13 +524,19 @@ function buildSidebar(): void {
       checkbox('Tint free bleach', () => view.showBleach, (v) => { view.showBleach = v; dirty = true; dirtyDye = true; }),
       slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; dirtyDye = true; }, (v) => v.toFixed(1)),
     ),
-    el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke'),
+    el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke · ', el('kbd', {}, '?'), ' help'),
   );
   resSel.addEventListener('change', () => { plan.N = parseInt(resSel.value); reconfigure(); });
   refreshSwatches();
   refreshModeUI();
   setTool('dye');
 }
+
+const helpDialog = document.getElementById('help') as HTMLDialogElement;
+function openHelp(): void { if (!helpDialog.open) helpDialog.showModal(); }
+document.getElementById('help-close')!.addEventListener('click', () => helpDialog.close());
+// click on the backdrop closes it (the dialog element itself is the click target there)
+helpDialog.addEventListener('click', (ev) => { if (ev.target === helpDialog) helpDialog.close(); });
 
 function savePlan(): void {
   deliverFile('tiedye-plan.json', toBase64(serializePlan(plan)), 'application/json', 'Tie-dye plan');
@@ -771,6 +778,8 @@ document.getElementById('backdrop')!.addEventListener('click', () => appEl.class
 
 window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;
+  if (helpDialog.open) return; // the dialog handles esc itself
+  if (ev.key === '?') { openHelp(); return; }
   if (ev.key === 'Escape') { foldDraft = []; dirty = true; }
   if (ev.key === ' ') { ev.preventDefault(); playBtn.click(); }
   if (ev.key === 'z') { plan.strokes.pop(); replay(); touched(); }
