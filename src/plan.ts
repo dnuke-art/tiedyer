@@ -48,6 +48,9 @@ export interface SimParams {
   bleach: number;
   /** bleach self-exhaustion per step (it goes off on its own, faster when rinsed) */
   bleachDecay: number;
+  /** how much extra dye a spot that is already wet can take from later squirts, in
+   *  layer-fills (0 = none: a texel never holds more than one squirt's worth) */
+  buildup: number;
 }
 
 export type Mode = 'fold' | 'twist';
@@ -87,6 +90,7 @@ export const DEFAULT_PARAMS: SimParams = {
   lateral: 0.35,
   bleach: 0.08,
   bleachDecay: 0.004,
+  buildup: 2,
 };
 
 export function defaultPlan(): Plan {

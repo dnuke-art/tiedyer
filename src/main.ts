@@ -108,7 +108,7 @@ const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1 };
 /** A squirt still being poured: while the button stays down on the spot, its soak grows
  *  by `flow` × the soak setting per second and the squirt is re-applied from the snapshot
  *  taken before it, so the liquid front keeps moving down through the layers. */
-let hold: { stroke: Stroke; pen0: number; snap: Float32Array[]; wet: Float32Array; t0: number } | null = null;
+let hold: { stroke: Stroke; pen0: number; snap: Float32Array[]; wet: Float32Array; load: Float32Array; t0: number } | null = null;
 const HOLD_MAX_PEN = 400;
 let playing = false;
 const budgetMs = 8;
@@ -489,11 +489,12 @@ function buildSidebar(): void {
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
       logSlider('soak layers', 0.5, 150, () => brush.pen, (v) => { brush.pen = v; }, (v) => v < 10 ? v.toFixed(1) : v.toFixed(0)),
       slider('hold flow', 0, 3, 0.1, () => brush.flow, (v) => { brush.flow = v; }, (v) => v > 0 ? `${v.toFixed(1)}×/s` : 'off'),
+      slider('build-up', 0, 5, 0.25, () => plan.params.buildup, (v) => { plan.params.buildup = v; touched(); }, (v) => v > 0 ? `+${v.toFixed(2)}` : 'off'),
       row(btn('Dip whole bundle', () => { addStroke({ kind: 'dip', dye: brush.dye, amount: brush.amount, pen: brush.pen }); }),
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
-      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Hold the button still and the squirt keeps pouring: soak grows by "hold flow" × soak every second and the front moves down. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
+      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Hold the button still and the squirt keeps pouring: soak grows by "hold flow" × soak every second and the front moves down. Going over a wet spot again makes it darker, up to "build-up" extra squirts of dye; a held pour only goes deeper. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
@@ -565,7 +566,7 @@ function addStroke(s: Stroke, holdable = false): void {
   gpu?.download();
   hold = null;
   if (holdable && s.kind !== 'dip') {
-    hold = { stroke: s, pen0: s.pen, snap: [...sim.f, sim.bl].map((a) => a.slice()), wet: sim.wet.slice(), t0: performance.now() };
+    hold = { stroke: s, pen0: s.pen, snap: [...sim.f, sim.bl].map((a) => a.slice()), wet: sim.wet.slice(), load: sim.load.slice(), t0: performance.now() };
   }
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();
@@ -789,6 +790,7 @@ function pourHeld(): void {
   const s = hold.stroke;
   [...sim.f, sim.bl].forEach((a, k) => a.set(hold!.snap[k]));
   sim.wet.set(hold.wet);
+  sim.load.set(hold.load);
   s.pen = pen;
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();

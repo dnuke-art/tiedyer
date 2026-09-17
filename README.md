@@ -63,7 +63,10 @@ where the set of feeding texels changes, such as under the edge of the layer abo
 pressed layer stops the front; overflow with nowhere to go drips off. The cloth stays wet
 between strokes: a full texel takes no more liquid, so squirting the same spot again pushes
 the front deeper instead of stacking dye without limit, and liquid passing through a full
-texel swaps a share with what it holds, so a new colour on a wet spot mixes in. Diffusion
+texel swaps a share with what it holds, so a new colour on a wet spot mixes in. A spot that
+was already wet before a squirt also takes on extra dye from it, up to "build-up" fills in
+total, so going over an area again darkens it to a limit (a single squirt, or a held pour,
+spends all its liquid on depth). Diffusion
 then only smooths what wicking put in place, which is also the order things happen in a real
 bundle.
 

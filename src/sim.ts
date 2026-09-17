@@ -47,6 +47,10 @@ export class Sim {
   /** liquid held per texel, in layer-fills (0 .. press); the cloth stays wet between
    *  strokes, so a second squirt on the same spot pushes through instead of piling up */
   wet = new Float32Array(0);
+  /** extra dye taken up by a wet texel from later squirts, in layer-fills (0 .. buildup) */
+  load = new Float32Array(0);
+  /** per-stroke: 0 untouched, 1 touched while not yet full, 2 was already full before this stroke */
+  private touched = new Uint8Array(0);
   /** cloth colour: dye index (-1 = none) and fixed amount per texel */
   base = -1;
   baseFixed = 0;
@@ -75,6 +79,8 @@ export class Sim {
     this.press = new Float32Array(n).fill(1);
     this.hsum = new Float32Array(n);
     this.wet = new Float32Array(n);
+    this.load = new Float32Array(n);
+    this.touched = new Uint8Array(n);
     this.pending = new Float32Array(n);
     this.depth = new Int32Array(n);
     this.order = new Int32Array(n);
@@ -144,6 +150,7 @@ export class Sim {
     for (let k = 0; k < this.nDyes; k++) { this.f[k].fill(0); this.h[k].fill(0); }
     this.bl.fill(0);
     this.wet.fill(0);
+    this.load.fill(0);
     if (this.base >= 0 && this.baseFixed > 0) {
       const h = this.h[this.base], valid = this.bundle?.valid;
       for (let i = 0; i < h.length; i++) if (!valid || valid[i]) h[i] = this.baseFixed;
@@ -188,14 +195,19 @@ export class Sim {
    * no more liquid, so squirting the same spot again pushes the front deeper rather
    * than stacking dye without limit. Liquid passing through a full texel exchanges
    * a share (MIX) with what it holds, so a new colour poured on a wet spot mixes in.
+   * A texel that was already full before the stroke began also takes up extra dye
+   * from the passing liquid, up to params.buildup layer-fills in total (`load`): going
+   * over a spot again and again makes it darker, to a limit, while a single squirt,
+   * or one held pour, spends all its liquid on reaching deeper.
    */
   wickFrom(ids: ArrayLike<number>, vols: ArrayLike<number>, conc: number, f: Float32Array, params: SimParams): void {
     const b = this.bundle, N = this.N, M = this.M;
-    const wet = this.wet, pending = this.pending, queued = this.depth, queue = this.order;
-    const lat = params.lateral;
+    const wet = this.wet, load = this.load, touched = this.touched, pending = this.pending, queued = this.depth, queue = this.order;
+    const lat = params.lateral, buildup = Math.max(0, params.buildup);
     const press = this.press;
     const species = [...this.f, this.bl];
     pending.fill(0);
+    touched.fill(0);
     queued.fill(0);
     let head = 0, tail = 0;
     // neighbour iteration: layer contacts then grid neighbours
@@ -219,10 +231,11 @@ export class Sim {
     /** pour v onto texel i: absorb what fits, exchange with held liquid, queue the rest as overflow */
     const pour = (i: number, v: number): void => {
       const cap = press[i] <= 0.05 ? 0 : press[i]; // squeezed shut: holds nothing, passes nothing
+      if (!touched[i]) touched[i] = cap > 0 && wet[i] >= cap - 1e-6 ? 2 : 1;
       const room = cap - wet[i];
       const a = room > 0 ? Math.min(v, room) : 0;
       if (a > 0) { wet[i] += a; f[i] += a * conc; }
-      const excess = v - a;
+      let excess = v - a;
       if (excess <= 1e-9 || cap <= 0) return;
       // flow-through: part of the held liquid is swapped for the passing liquid
       const w = wet[i];
@@ -231,6 +244,12 @@ export class Sim {
         const keep = 1 - x / w;
         for (const sp of species) sp[i] *= keep;
         f[i] += x * conc;
+      }
+      // build-up: a spot that was wet before this squirt takes on extra dye, to a limit
+      if (touched[i] === 2 && buildup > 0) {
+        const extra = Math.min(excess, buildup * cap - load[i]);
+        if (extra > 0) { load[i] += extra; f[i] += extra * conc; excess -= extra; }
+        if (excess <= 1e-9) return;
       }
       pending[i] += excess;
       if (!queued[i]) { queued[i] = 1; queue[tail++] = i; }
