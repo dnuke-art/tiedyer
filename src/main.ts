@@ -103,7 +103,13 @@ type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
 /** the last paint tool (dye/band) chosen, restored when orbit is toggled off */
 let paintTool: 'dye' | 'band' = 'dye';
-const brush = { r: 3, amount: 0.8, pen: 10, dye: 0 };
+const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1 };
+
+/** A squirt still being poured: while the button stays down on the spot, its soak grows
+ *  by `flow` × the soak setting per second and the squirt is re-applied from the snapshot
+ *  taken before it, so the liquid front keeps moving down through the layers. */
+let hold: { stroke: Stroke; pen0: number; snap: Float32Array; t0: number } | null = null;
+const HOLD_MAX_PEN = 400;
 let playing = false;
 const budgetMs = 8;
 let stepsPerFrame = 20;
@@ -313,7 +319,7 @@ const toolButtons: Record<Tool, HTMLButtonElement> = {} as never;
 const toolHint = document.getElementById('tool-hint')!;
 const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
-  dye: 'drag to squirt dye (or bleach) on the side you are viewing',
+  dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
   centre: 'click the flat cloth where you pinch',
@@ -476,11 +482,12 @@ function buildSidebar(): void {
       slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
       logSlider('soak layers', 0.5, 150, () => brush.pen, (v) => { brush.pen = v; }, (v) => v < 10 ? v.toFixed(1) : v.toFixed(0)),
+      slider('hold flow', 0, 3, 0.1, () => brush.flow, (v) => { brush.flow = v; }, (v) => v > 0 ? `${v.toFixed(1)}×/s` : 'off'),
       row(btn('Dip whole bundle', () => { addStroke({ kind: 'dip', dye: brush.dye, amount: brush.amount, pen: brush.pen }); }),
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
-      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
+      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Hold the button still and the squirt keeps pouring: soak grows by "hold flow" × soak every second and the front moves down. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
@@ -546,10 +553,15 @@ function loadPlanFile(): void {
 // ---------------------------------------------------------------------------
 // Strokes and bindings
 
-function addStroke(s: Stroke): void {
+function addStroke(s: Stroke, holdable = false): void {
   tap();
   plan.strokes.push(s);
   gpu?.download();
+  hold = null;
+  if (holdable && s.kind !== 'dip') {
+    const target = s.dye === BLEACH ? sim.bl : sim.f[s.dye];
+    if (target) hold = { stroke: s, pen0: s.pen, snap: target.slice(), t0: performance.now() };
+  }
   sim.applyStroke(s, plan.params, footprintOracle());
   gpu?.upload();
   dirty = true;
@@ -563,7 +575,7 @@ function paintSide(): 'top' | 'bottom' {
 
 function stampAt(p: Vec2): void {
   if (tool === 'dye') {
-    addStroke({ kind: 'brush', p, r: brush.r, dye: brush.dye, amount: brush.amount, side: paintSide(), pen: brush.pen });
+    addStroke({ kind: 'brush', p, r: brush.r, dye: brush.dye, amount: brush.amount, side: paintSide(), pen: brush.pen }, true);
   } else if (tool === 'band') {
     tap();
     plan.bands.push({ p, r: brush.r });
@@ -593,7 +605,7 @@ function stampAt3d(ev: PointerEvent): void {
   const h = hit3d(ev);
   if (!h) return;
   if (tool === 'dye') {
-    addStroke({ kind: 'brush3', p: h.p, d: h.d, r: brush.r, dye: brush.dye, amount: brush.amount, pen: brush.pen });
+    addStroke({ kind: 'brush3', p: h.p, d: h.d, r: brush.r, dye: brush.dye, amount: brush.amount, pen: brush.pen }, true);
   }
 }
 
@@ -712,6 +724,7 @@ const release = (ev: PointerEvent) => {
     dragging = false;
     lastStamp = null;
     lastStamp3 = null;
+    if (hold) { hold = null; dirty = true; }
     if (bandStart && bandEnd) {
       // rubber band: a slab through the two hit points, containing the view direction
       const along = sub3(bandEnd, bandStart.p);
@@ -763,9 +776,26 @@ window.addEventListener('keydown', (ev) => {
 const statusEl = document.getElementById('status')!;
 
 let frameCount = 0;
+/** keep pouring the held squirt: grow its soak with time and re-apply it from the snapshot */
+function pourHeld(): void {
+  if (!hold || !dragging || brush.flow <= 0) return;
+  const pen = Math.min(HOLD_MAX_PEN, hold.pen0 * (1 + brush.flow * (performance.now() - hold.t0) / 1000));
+  if (pen < hold.stroke.pen * 1.02) return; // nothing worth re-wicking yet
+  const s = hold.stroke;
+  const target = s.dye === BLEACH ? sim.bl : sim.f[s.dye];
+  target.set(hold.snap);
+  s.pen = pen;
+  sim.applyStroke(s, plan.params, footprintOracle());
+  gpu?.upload();
+  dirty = true;
+  dirtyDye = true;
+  touched();
+}
+
 function frame(): void {
   frameCount++;
-  if (playing) {
+  pourHeld();
+  if (playing && !hold) {
     if (gpu) gpu.step(plan.params, stepsPerFrame);
     else {
       const t0 = performance.now();
@@ -1032,7 +1062,8 @@ function renderOnce(): void {
   const shape = plan.mode === 'twist'
     ? (twistStatus ? `twisting: ${twistStatus}` : `twist ${plan.twist.turns} turns · ${sim.N}×${sim.M} particles`)
     : `${faces.length} faces · up to ${isFold(bundle) ? bundle.maxLayers : 0} layers · ${sim.N}×${sim.M} texels`;
-  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t} · build ${__BUILD__}` + '\n' + hoverInfo;
+  const pouring = hold && dragging ? ` · pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
+  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}${pouring} · build ${__BUILD__}` + '\n' + hoverInfo;
 }
 
 // Debug / scripting handle (also handy for automated tests).
