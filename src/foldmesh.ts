@@ -6,21 +6,18 @@
 // is not a flat plate: it is a terrain that steps up wherever a face beneath it
 // ends. This builder reproduces that exactly. Each face polygon (in bundle space)
 // is split by the edge lines of every face below it into convex cells, each cell
-// sits at its own height, and three kinds of side surface close the shape:
-//
-//   - a skirt of one layer thickness under every cell edge whose neighbour across
-//     the edge is lower or missing (raw cloth edges, step cliffs, creases);
-//   - a rounded fold at every crease: the two faces that meet at a crease in the
-//     flat cloth sit at two heights in the bundle along the same segment, and a
-//     quarter-turn arc joins them, bulging outward by half the height it spans, so
-//     nested folds sit inside each other like the layers of a rolled edge;
-//   - a floor under the bottom layer.
+// sits at its own height, a skirt of one layer thickness hangs under every cell
+// edge whose neighbour across the edge is lower or missing (raw cloth edges, step
+// cliffs, creases), and the bottom layer gets a floor. Folds are cuts: the two faces
+// that meet at a crease in the flat cloth are two plates at two heights that end on
+// the same line, with nothing drawn between them. Each layer's skirt carries that
+// layer's own edge texels, so a squirt on the side of a stack enters every layer.
 //
 // UVs are flat cloth coordinates over (W, H), the same mapping as the texel grid,
 // so the dye image is the texture and a fragment's texel id is floor(uv * N).
 
 import { Vec2, apply, clipPolygon, polygonArea, pointInConvexPolygon, bboxContains, sub, normalize } from './geom';
-import { Face, indexFaces, faceAtFlat } from './fold';
+import { Face, indexFaces } from './fold';
 
 export interface Mesh3 {
   /** xyz per vertex, bundle cm */
@@ -33,8 +30,6 @@ export interface Mesh3 {
 const AREA_EPS = 1e-6;
 /** offset used to sample "just across" an edge, cm */
 const NUDGE = 1e-3;
-/** segments in a rounded fold */
-const ARC_SEGS = 6;
 
 export function foldMesh(faces: Face[], W: number, H: number, thickness: number): Mesh3 {
   const index = indexFaces(faces);
@@ -133,63 +128,8 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
           const a1 = addVert(a, z - t, fa), b1 = addVert(b, z - t, fb);
           quad(a0, a1, b1, b0);
         }
-        if (across >= 0) continue;
-        // boundary of the face: a crease if another face is adjacent in the flat cloth
-        const fmid = apply(Tinv, mid);
-        const fout = apply(Tinv, out);
-        const g = faceAtFlat(index, fout, 1e-6);
-        if (g < 0 || g === f) continue;
-        if (Math.abs(fout.x - fmid.x) + Math.abs(fout.y - fmid.y) > 10 * NUDGE) continue; // not a rigid neighbour (should not happen)
-        // the partner face lies on the same side of the crease; its height may step
-        // along this edge where its own lower faces end, so split the edge there
-        const lowG = lower(g);
-        const ts: number[] = [0, 1];
-        for (const q of lowG) {
-          const pq = P[q];
-          for (let e2 = 0; e2 < pq.length; e2++) {
-            const s = segmentParam(a, b, pq[e2], pq[(e2 + 1) % pq.length]);
-            if (s !== null && s > 1e-6 && s < 1 - 1e-6) ts.push(s);
-          }
-        }
-        ts.sort((x, y) => x - y);
-        const inn = { x: -nx, y: -ny };
-        for (let k = 0; k + 1 < ts.length; k++) {
-          const s0 = ts[k], s1 = ts[k + 1];
-          if (s1 - s0 < 1e-6) continue;
-          const p0 = lerp(a, b, s0), p1 = lerp(a, b, s1);
-          const pm = lerp(a, b, (s0 + s1) / 2);
-          const zg = depthAt(lowG, { x: pm.x + inn.x * NUDGE, y: pm.y + inn.y * NUDGE }) * t;
-          if (zg >= z) continue; // the higher face owns the fold
-          const f0 = lerp(fa, fb, s0), f1 = lerp(fa, fb, s1);
-          // quarter... a half-turn arc from the top of this layer to the bottom of the partner's
-          const zTop = z, zBot = zg - t;
-          const zc = (zTop + zBot) / 2, r = (zTop - zBot) / 2;
-          let prev0 = -1, prev1 = -1;
-          for (let s = 0; s <= ARC_SEGS; s++) {
-            const ang = (s / ARC_SEGS) * Math.PI; // 0 at the top, pi at the bottom
-            const off = r * Math.sin(ang), zz = zc + r * Math.cos(ang);
-            const v0 = addVert({ x: p0.x + nx * off, y: p0.y + ny * off }, zz, f0);
-            const v1 = addVert({ x: p1.x + nx * off, y: p1.y + ny * off }, zz, f1);
-            if (s > 0) quad(prev0, v0, v1, prev1);
-            prev0 = v0; prev1 = v1;
-          }
-        }
       }
     }
   }
   return { pos: Float32Array.from(pos), uv: Float32Array.from(uv), idx: Uint32Array.from(idx) };
-}
-
-function lerp(a: Vec2, b: Vec2, s: number): Vec2 { return { x: a.x + (b.x - a.x) * s, y: a.y + (b.y - a.y) * s }; }
-
-/** parameter along a->b where segment c->d crosses it (proper crossing), or null */
-function segmentParam(a: Vec2, b: Vec2, c: Vec2, d: Vec2): number | null {
-  const r = sub(b, a), s = sub(d, c);
-  const den = r.x * s.y - r.y * s.x;
-  if (Math.abs(den) < 1e-12) return null;
-  const qp = sub(c, a);
-  const u = (qp.x * s.y - qp.y * s.x) / den;
-  const v = (qp.x * r.y - qp.y * r.x) / den;
-  if (v < -1e-9 || v > 1 + 1e-9) return null;
-  return u;
 }

@@ -99,9 +99,9 @@ dye solver. The run happens in a Web Worker with live progress.
 
 **3D view.** Both bundles are drawn by one WebGL2 renderer (`src/view3d.ts`). A flat-fold
 bundle is drawn as an exact mesh built from the face polygons (`src/foldmesh.ts`): each face
-is split by the edges of the faces beneath it into cells at exact layer heights, every
-edge gets a skirt one cloth thickness tall, and every crease gets a rounded fold that
-bulges out by half the height it spans, so nested folds sit inside each other. UV = flat
+is split by the edges of the faces beneath it into cells at exact layer heights and every
+edge gets a skirt one cloth thickness tall, so each layer's edge catches its own dye;
+folds are cuts, with the other side of the fold appearing at its own height. UV = flat
 coordinates, so the dye image is the texture and a fragment's texel id comes from its UV.
 The particle cloth is drawn from its texel grid (two triangles per quad, quads that
 straddle a fold dropped) or as oriented Gaussian surfel splats. Both have an orbit camera.
@@ -122,7 +122,7 @@ thickness) and voxel exposure, so the edges of a folded stack are dyeable.
 - `src/gpu.ts` – WebGL2 solver and colour mapping (same step as a fragment shader)
 - `src/render.ts` – 2D canvas rendering of both views, picking helpers
 - `src/view3d.ts` – WebGL2 3D bundle view: mesh, splats, orbit camera, ID picking, footprints
-- `src/foldmesh.ts` – exact polygon mesh of a flat-fold bundle (cells, skirts, rounded creases)
+- `src/foldmesh.ts` – exact polygon mesh of a flat-fold bundle (cells at layer heights, edge skirts)
 - `src/glb.ts` – glTF binary writer: the 3D mesh with the dye image as its texture (GLB button)
 - `src/bundle.ts` – the Bundle contract (positions, weighted contacts, surface flags); flat-fold producer
 - `src/cloth.ts` – particle cloth, twist operation, bundle extraction

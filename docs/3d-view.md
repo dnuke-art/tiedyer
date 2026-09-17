@@ -257,19 +257,22 @@ reproduces that exactly:
    cloth thickness tall. That covers raw cloth edges, the cliffs where a face steps
    down, and creases, and because each height band belongs to exactly one face there
    are no coplanar overlaps to fight over.
-3. A crease is an edge with another face adjacent in the *flat* cloth. In the bundle
-   both faces lie along the same segment at two heights, so a half-turn arc joins the
-   top of the upper face to the underside of the lower one, bulging outward by half the
-   height it spans. Nested folds through a stack share a centre and differ in radius by
-   one thickness, so they sit inside each other like the layers of a rolled edge. The
-   arc is split where the partner face's own height steps.
-4. The bottom layer gets a floor.
+3. The bottom layer gets a floor.
+
+Folds are cuts. The two faces that meet at a crease in the flat cloth are two plates at
+two heights that end on the same line, and nothing is drawn between them. A first
+version joined them with rounded half-turn arcs, one per pair of layers through the
+fold, which looked like a rolled edge from the side and like a bundle of nested shells
+from the end of the crease, and, worse, mapped a whole fold to one line of crease
+texels, so a squirt on the outside of a fold only entered the outermost pair of layers.
+With skirts alone every layer carries its own strip of edge, so a squirt on the side of
+a 72-layer kikko enters 50 to 66 layers and wets about 70, which is what the old grid
+walls gave and what makes edge painting work.
 
 UVs are flat coordinates over the cloth size, so the dye image stays the texture, and
 the fragment shader computes the texel id as `floor(uv × (N, M))`, which means picking,
-footprints and 3D strokes work unchanged. Skirts and arcs carry the flat coordinates of
-the edge they hang from, so a squirt on a rounded fold lands on the crease-line texels,
-which is where it should. The 72-layer kikko is about 10 000 vertices and 7 000
+footprints and 3D strokes work unchanged. Skirts carry the flat coordinates of the edge
+they hang from, so a squirt on the side of a stack lands on each layer's edge texels. The 72-layer kikko is about 10 000 vertices and 7 000
 triangles, against 114 000 triangles for the grid. Picking a top-surface texel from its
 own projection returns that texel exactly; from an oblique camera the only misses are
 texels genuinely hidden behind a higher plateau.
