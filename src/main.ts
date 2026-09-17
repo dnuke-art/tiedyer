@@ -91,7 +91,7 @@ function setThree(on: boolean): void {
 v2dBtn.addEventListener('click', () => setThree(false));
 v3dBtn.addEventListener('click', () => setThree(true));
 // 3D "paint" toggle: on, a plain drag paints with the last Dye/Band tool and never orbits;
-// off, a plain drag orbits. Right/middle drag, modifiers, wheel and two fingers always orbit/zoom.
+// off, a plain drag orbits. Right/middle drag, modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
 const paintBtn = document.getElementById('paintBtn') as HTMLButtonElement;
 const isPaint = (t: Tool) => t === 'dye' || t === 'band';
 paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? 'orbit' : paintTool));
@@ -144,6 +144,8 @@ function foldDraftLine(): { p: Vec2; d: Vec2; moveSign?: 1 | -1 } | null {
 let hoverFolded: Vec2 | null = null;
 let hoverFlat: Vec2 | null = null;
 let dragging = false;
+/** strokes on the plan when the current one-finger drag began (a second finger takes back what it laid down) */
+let dragStrokes0 = 0;
 let lastStamp: Vec2 | null = null;
 let bandsDirty = false;
 
@@ -351,7 +353,7 @@ function setTool(t: Tool): void {
   chip.className = `chip mode-${t}`;
   foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  toolHint.textContent = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag or two fingers to orbit, wheel to zoom' : '');
+  toolHint.textContent = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -648,7 +650,8 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
     // two-finger orbit + pinch zoom
     const [a, b] = [...touches.values()];
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
-    if (gesture) { view3d.orbit(cx - gesture.x, cy - gesture.y); gesture.x = cx; gesture.y = cy; }
+    // two fingers: drag pans, pinch zooms (one finger orbits when paint is off)
+    if (gesture) { const k = folded3dCanvas.width / foldedCanvas.clientWidth; view3d.pan((cx - gesture.x) * k, (cy - gesture.y) * k); gesture.x = cx; gesture.y = cy; }
     if (pinchDist > 0) view3d.zoom(pinchDist / d);
     pinchDist = d;
     dirty = true;
@@ -702,10 +705,12 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (touches.size === 2 && view3d && is3d()) {
       const [a, b] = [...touches.values()];
-      gesture = { kind: 'orbit', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      gesture = { kind: 'pan', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
       hover3d = null;
-      dragging = false; lastStamp = null; lastStamp3 = null; bandStart = null; bandEnd = null;
+      // the first finger already squirted before the second arrived: take that back, this is a camera gesture
+      if (dragging && plan.strokes.length > dragStrokes0) { plan.strokes.length = dragStrokes0; hold = null; replay(); touched(); }
+      dragging = false; lastStamp = null; lastStamp3 = null; bandStart = null; bandEnd = null; bandsDirty = false;
       return;
     }
   }
@@ -718,6 +723,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
   hoverFolded = renderer.foldedToCm(ev);
   const p = renderer.foldedToCm(ev);
   if (is3d()) {
+    dragStrokes0 = plan.strokes.length;
     if (tool === 'dye') { dragging = true; const h = hit3d(ev); lastStamp3 = h ? h.p : null; stampAt3d(ev); }
     else if (tool === 'band') { dragging = true; const h = hit3d(ev); bandStart = h ? { p: h.p, d: h.d } : null; bandEnd = null; }
     return;

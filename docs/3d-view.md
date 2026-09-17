@@ -166,7 +166,8 @@ with the 3D projection, so the input handling stayed where it was. The rules:
   slips off the bundle does not spin it.
 - Right or middle button, alt, ctrl and shift also orbit or pan; the wheel and the +/−
   buttons zoom; "fit" reframes.
-- Two fingers orbit and pinch-zoom; a second finger cancels any stroke in progress.
+- Two fingers pan and pinch-zoom (one finger orbits when paint is off); a second finger
+  cancels any stroke in progress.
 - Pointer capture keeps a drag alive off the canvas, and `pointercancel` is treated as a
   release because some mobile browsers send it instead of a normal up.
 

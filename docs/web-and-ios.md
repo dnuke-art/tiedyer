@@ -46,9 +46,9 @@ Pencil. A few interactions are naturally different by input device:
 |---|---|---|
 | Squirt dye / place band | Left-drag | One finger |
 | Keep pouring so it soaks deeper | Hold the button still | Hold the finger still |
-| Orbit the 3D bundle | Right-drag always; left-drag when Paint is off | Two fingers always; one finger when Paint is off |
+| Orbit the 3D bundle | Right-drag always; left-drag when Paint is off | One finger when Paint is off (turn Paint off to look around) |
 | Zoom | Wheel, or + / − | Pinch, or + / − |
-| Pan | Shift-drag | (use fit, then orbit) |
+| Pan | Shift-drag or middle-drag | Two-finger drag |
 | Draw a fold line | Click, move to set the angle, click, click the side | Tap, move, tap, tap |
 | Select a dye | Click its swatch | Tap its swatch |
 | Change a dye's colour | Click the selected swatch again | Tap the selected swatch again; the iOS colour sheet slides up |
