@@ -277,6 +277,17 @@ triangles, against 114 000 triangles for the grid. Picking a top-surface texel f
 own projection returns that texel exactly; from an oblique camera the only misses are
 texels genuinely hidden behind a higher plateau.
 
+One thing the id alone gets wrong on this mesh: a fragment within one texel of a crease
+can land in a texel whose centre is across the crease in the flat cloth, and that texel
+sits at the same bundle xy on the partner layer, up to 7 cm away in z. Taking the hit
+point from the texel centre made the cursor flicker between layers along every crease.
+So the ID pass now also writes the window depth, packed into a second RGBA8 attachment,
+and `pickPoint` reconstructs the exact surface point under the pixel from it (24 bits of
+depth is a fraction of a millimetre at these distances). The id is then snapped to
+whichever of the texel and its four flat neighbours lies closest to that point, which is
+always the one on the fragment's own layer. A sweep across the kikko that used to jump
+29 times now jumps zero times, and the hit point sits 1.4 mm from its texel on average.
+
 **GLB export.** The same mesh, with the dye image as a PNG, is what the GLB button
 writes (`src/glb.ts`): one primitive with POSITION, TEXCOORD_0 and indices, a
 double-sided material with the image as base colour, under a node that rotates the

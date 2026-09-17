@@ -77,16 +77,19 @@ precision highp float;
 in vec2 vUv; in vec3 vPos; flat in float vId;
 uniform sampler2D uTex; uniform vec3 uLight; uniform vec3 uEye; uniform int uIdMode; uniform float uCloth;
 uniform int uIdFromUv; uniform vec2 uGrid;
-out vec4 o;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 oD;
 vec4 encode(float id) { float v = id + 1.0; return vec4(mod(v, 256.0) / 255.0, mod(floor(v / 256.0), 256.0) / 255.0, floor(v / 65536.0) / 255.0, 1.0); }
+vec4 packDepth(float d) { vec3 e = fract(vec3(1.0, 255.0, 65025.0) * d); e -= e.yzz * vec3(1.0 / 255.0, 1.0 / 255.0, 0.0); return vec4(e, 1.0); }
 void main() {
+  oD = vec4(0.0);
   if (uIdMode == 1) {
     float id = vId;
     if (uIdFromUv == 1) {
       vec2 g = clamp(floor(vUv * uGrid), vec2(0.0), uGrid - 1.0);
       id = g.x + g.y * uGrid.x;
     }
-    o = encode(id); return;
+    o = encode(id); oD = packDepth(gl_FragCoord.z); return;
   }
   vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
   vec3 v = normalize(uEye - vPos);
@@ -115,13 +118,16 @@ const SPLAT_FS = `#version 300 es
 precision highp float;
 in vec2 vCorner; in vec2 vUv; in vec3 vN; flat in float vId;
 uniform sampler2D uTex; uniform vec3 uLight; uniform vec3 uEye; uniform int uIdMode; uniform float uCloth;
-out vec4 o;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 oD;
 vec4 encode(float id) { float v = id + 1.0; return vec4(mod(v, 256.0) / 255.0, mod(floor(v / 256.0), 256.0) / 255.0, floor(v / 65536.0) / 255.0, 1.0); }
+vec4 packDepth(float d) { vec3 e = fract(vec3(1.0, 255.0, 65025.0) * d); e -= e.yzz * vec3(1.0 / 255.0, 1.0 / 255.0, 0.0); return vec4(e, 1.0); }
 void main() {
   float r2 = dot(vCorner, vCorner);
   float a = exp(-2.5 * r2);
   if (a < 0.45) discard;
-  if (uIdMode == 1) { o = encode(vId); return; }
+  oD = vec4(0.0);
+  if (uIdMode == 1) { o = encode(vId); oD = packDepth(gl_FragCoord.z); return; }
   vec3 n = vN;
   vec3 c = uCloth > 0.5 ? texture(uTex, vUv).rgb : vec3(0.93);
   float diff = abs(dot(n, uLight));
@@ -181,7 +187,11 @@ export class View3D {
   private tex: WebGLTexture;
   private idFbo: WebGLFramebuffer;
   private idTex: WebGLTexture;
+  /** second attachment of the ID pass: window depth packed into 24 bits */
+  private idDepthTex: WebGLTexture;
   private idDepth: WebGLRenderbuffer;
+  private near = 1;
+  private far = 100;
   private idW = 0;
   private idH = 0;
   private fpFbo: WebGLFramebuffer;
@@ -237,6 +247,7 @@ export class View3D {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([240, 240, 240, 255]));
     this.idFbo = gl.createFramebuffer()!; this.idTex = gl.createTexture()!; this.idDepth = gl.createRenderbuffer()!;
+    this.idDepthTex = gl.createTexture()!;
     this.fpFbo = gl.createFramebuffer()!; this.fpTex = gl.createTexture()!; this.fpDepth = gl.createRenderbuffer()!;
     this.setupFbo(this.fpFbo, this.fpTex, this.fpDepth, this.FP, this.FP);
   }
@@ -389,7 +400,8 @@ export class View3D {
     ];
     this.eye = eye;
     const view = lookAt(eye, c.target, [0, 0, 1]);
-    const proj = perspective(c.fov, w / h, c.dist * 0.02, c.dist * 10);
+    this.near = c.dist * 0.02; this.far = c.dist * 10;
+    const proj = perspective(c.fov, w / h, this.near, this.far);
     this.viewProj = mul4(proj, view);
   }
 
@@ -451,6 +463,15 @@ export class View3D {
     const w = this.canvas.width, h = this.canvas.height;
     if (this.idW !== w || this.idH !== h) {
       this.setupFbo(this.idFbo, this.idTex, this.idDepth, w, h);
+      const gl = this.gl;
+      gl.bindTexture(gl.TEXTURE_2D, this.idDepthTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.idFbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.idDepthTex, 0);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       this.idW = w; this.idH = h;
       this.idDirty = true;
     }
@@ -472,13 +493,47 @@ export class View3D {
 
   /** texel under a canvas pixel (backing-store coords), or -1 */
   pick(x: number, y: number): number {
+    return this.pickPoint(x, y)?.id ?? -1;
+  }
+
+  /**
+   * Texel and exact surface point under a canvas pixel. The point comes from the
+   * depth written by the ID pass, not from the texel's centre, so it stays on the
+   * surface under the cursor; the id is then snapped to whichever of the texel and
+   * its four flat neighbours lies closest to that point, which keeps a fragment next
+   * to a crease on its own layer rather than on the partner layer across the fold.
+   */
+  pickPoint(x: number, y: number): { id: number; p: Vec3 } | null {
     this.ensureIdBuffer();
     const gl = this.gl;
-    const px = new Uint8Array(4);
+    const px = new Uint8Array(4), pd = new Uint8Array(4);
+    const sx = Math.floor(x), sy = Math.floor(this.idH - 1 - y);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.idFbo);
-    gl.readPixels(Math.floor(x), Math.floor(this.idH - 1 - y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.readPixels(sx, sy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.readBuffer(gl.COLOR_ATTACHMENT1);
+    gl.readPixels(sx, sy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pd);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return View3D.decode(px, 0);
+    let id = View3D.decode(px, 0);
+    if (id < 0) return null;
+    const d = pd[0] / 255 + pd[1] / 65025 + pd[2] / 16581375;
+    const zn = d * 2 - 1;
+    const { near: n, far: f } = this;
+    const zEye = 2 * f * n / (f + n - zn * (f - n));
+    const dir = this.rayDir(x, y);
+    const t = zEye / Math.max(1e-6, dot(dir, this.forward()));
+    const p: Vec3 = add(this.eye, scale3(dir, t));
+    // snap to the nearest of the texel and its flat neighbours
+    const N = this.N;
+    let best = Infinity;
+    for (const j of [id, id - 1, id + 1, id - N, id + N]) {
+      if (j < 0 || j >= this.n) continue;
+      if ((j === id - 1 && id % N === 0) || (j === id + 1 && j % N === 0)) continue;
+      const dj = len3(sub(this.position(j), p));
+      if (dj < best) { best = dj; id = j; }
+    }
+    return { id, p };
   }
 
   /** world -> canvas pixel */

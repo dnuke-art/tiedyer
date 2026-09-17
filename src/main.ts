@@ -646,8 +646,8 @@ function hit3d(ev: PointerEvent | MouseEvent): Hit {
   const c = view3d.cam;
   const key = `${x | 0},${y | 0},${c.az},${c.el},${c.dist},${c.target.join(',')},${geomVersion},${folded3dCanvas.width}`;
   if (hitCache && hitCache.key === key) return hitCache.hit;
-  const id = view3d.pick(x, y);
-  const hit: Hit = id < 0 ? null : { id, p: view3d.position(id), d: view3d.rayDir(x, y), x, y };
+  const pk = view3d.pickPoint(x, y);
+  const hit: Hit = !pk ? null : { id: pk.id, p: pk.p, d: view3d.rayDir(x, y), x, y };
   hitCache = { key, hit };
   return hit;
 }
