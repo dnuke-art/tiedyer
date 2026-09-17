@@ -83,15 +83,18 @@ function setThree(on: boolean): void {
   if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
   if (view.three && (tool === 'dye' || tool === 'band')) setTool('orbit');
   if (!view.three && tool === 'orbit') setTool('dye');
+  else setTool(tool); // refresh the hint for the new view
   dirty = true;
   lastFlatKey = '';
   last3dKey = '';
 }
 v2dBtn.addEventListener('click', () => setThree(false));
 v3dBtn.addEventListener('click', () => setThree(true));
-// orbit is a toggle: turning it off goes back to the paint tool that was active before (Dye by default),
-// never to Inspect, which in 3D also orbits and would leave no way to paint
-document.getElementById('orbitBtn')!.addEventListener('click', () => setTool(tool === 'orbit' ? paintTool : 'orbit'));
+// 3D "paint" toggle: on, a plain drag paints with the last Dye/Band tool and never orbits;
+// off, a plain drag orbits. Right/middle drag, modifiers, wheel and two fingers always orbit/zoom.
+const paintBtn = document.getElementById('paintBtn') as HTMLButtonElement;
+const isPaint = (t: Tool) => t === 'dye' || t === 'band';
+paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? 'orbit' : paintTool));
 document.getElementById('zoomIn')!.addEventListener('click', () => { view3d?.zoom(0.8); dirty = true; });
 document.getElementById('zoomOut')!.addEventListener('click', () => { view3d?.zoom(1.25); dirty = true; });
 document.getElementById('fitView')!.addEventListener('click', () => { view3d?.frame(); dirty = true; });
@@ -298,7 +301,7 @@ const HINTS: Record<Tool, string> = {
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
   centre: 'click the flat cloth where you pinch',
-  orbit: 'drag to orbit · wheel or +/− to zoom · shift-drag to pan · with Dye/Band, drag the background to orbit',
+  orbit: 'drag to orbit · wheel or +/− to zoom · shift-drag to pan · turn on paint to dye or band',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -316,9 +319,9 @@ function setTool(t: Tool): void {
   tool = t;
   foldDraft = [];
   dirty = true;
-  document.getElementById('orbitBtn')?.classList.toggle('on', t === 'orbit');
+  paintBtn.classList.toggle('on', isPaint(t));
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  toolHint.textContent = HINTS[t];
+  toolHint.textContent = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag or two fingers to orbit, wheel to zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -384,7 +387,6 @@ function buildSidebar(): void {
   const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const refreshCentre = () => { cx.value = String(plan.twist.c.x); cy.value = String(plan.twist.c.y); };
   toolButtons.centre = btn('Pick', () => setTool('centre'));
-  toolButtons.orbit = document.getElementById('orbitBtn') as HTMLButtonElement;
   const styleSel = el('select', {}, el('option', { value: 'mesh' }, 'mesh'), el('option', { value: 'splat' }, 'splats')) as HTMLSelectElement;
   styleSel.addEventListener('change', () => { if (view3d) view3d.style = styleSel.value as 'mesh' | 'splat'; dirty = true; });
   modeButtons = { fold: btn('Fold', () => setMode('fold')), twist: btn('Twist', () => setMode('twist')) };
@@ -648,8 +650,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       return;
     }
   }
-  const onBackground = is3d() && view3d && ev.button === 0 && (tool === 'dye' || tool === 'band') && !hit3d(ev);
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || onBackground || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
     hover3d = null;
     return;

@@ -161,8 +161,9 @@ The WebGL canvas sits under the existing 2D canvas, which becomes a transparent 
 in 3D. Markers, the brush cursor, and the band drag line are drawn on the overlay in 2D
 with the 3D projection, so the input handling stayed where it was. The rules:
 
-- Entering 3D selects the orbit tool. A plain drag orbits. Dye or Band paint only when
-  the drag starts on the cloth; a drag from the background orbits with any tool.
+- Entering 3D turns "paint" off: a plain drag orbits. With paint on (or after choosing
+  Dye or Band in the sidebar) a plain drag paints and never orbits, so a stroke that
+  slips off the bundle does not spin it.
 - Right or middle button, alt, ctrl and shift also orbit or pan; the wheel and the +/−
   buttons zoom; "fit" reframes.
 - Two fingers orbit and pinch-zoom; a second finger cancels any stroke in progress.
@@ -200,8 +201,9 @@ a GPU readback. The fixes were all about doing less:
   at 1.5×, and the pick used the overlay's scale. Fixed by scaling by the actual ratio
   of the 3D canvas's backing width to its layout width, and projecting overlay markers
   back the same way.
-- **"Orbit doesn't work."** The default tool was Dye, so a drag painted. The orbit tool
-  is now selected on entering 3D and background drags orbit regardless.
+- **"Orbit doesn't work."** The default tool was Dye, so a drag painted. Paint is now
+  off on entering 3D. (An earlier fix made the toggle return to Inspect, which also
+  orbits, so painting could not be turned back on; the toggle is now paint itself.)
 - **The freeze.** The twist worker returned the bundle without its `exposed` array. The
   first hover over a spiral in 3D indexed it, threw inside `requestAnimationFrame`, and
   the loop died silently while buttons kept responding. The kikko never hit it because
