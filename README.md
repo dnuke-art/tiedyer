@@ -112,7 +112,7 @@ the entry set, wicking is a layered flow over the contact graph plus in-plane ne
 ("sideways wick"), so dye poured on the edge of a stack wicks inward. Bands in 3D are
 slabs: drag a line across the bundle and everything within the band's width of the plane
 through that line is squeezed. Flat-fold bundles get real height (layer index times
-thickness) and voxel exposure, so the edges of a folded stack are dyeable.
+the plan's layer height, a slider) and voxel exposure, so the edges of a folded stack are dyeable.
 
 ## Files
 

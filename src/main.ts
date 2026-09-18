@@ -1,7 +1,7 @@
 import './style.css';
 import { Vec2, Mat, apply, side, normalize, dist, clipPolygon } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, foldPreview, Axis } from './fold';
-import { flatFoldBundle, FlatFoldBundle, LAYER_THICKNESS } from './bundle';
+import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { foldMesh } from './foldmesh';
 import { encodeGlb } from './glb';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
@@ -59,7 +59,7 @@ function sync3d(px: Float32Array, py: Float32Array, pz: Float32Array, reframe: b
   if (key !== gridKey) { view3d.setGrid(sim.N, sim.M, plan.W, plan.H); gridKey = key; reframe = true; }
   view3d.setPositions(px, py, pz);
   // flat folds get the exact polygon mesh; the particle cloth is drawn from its grid
-  view3d.setMesh(isFold(bundle) ? foldMesh(bundle.faces, plan.W, plan.H, LAYER_THICKNESS) : null);
+  view3d.setMesh(isFold(bundle) ? foldMesh(bundle.faces, plan.W, plan.H, plan.thickness) : null);
   geomVersion++;
   if (reframe) view3d.frame();
 }
@@ -203,7 +203,7 @@ function rebuildGeometry(): void {
   if (plan.mode === 'twist') { rebuildTwist(); return; }
   twistRun++; liveCloth = null; twistStatus = '';
   faces = buildFaces(plan.W, plan.H, plan.folds);
-  bundle = flatFoldBundle(sim.dims(), faces);
+  bundle = flatFoldBundle(sim.dims(), faces, plan.thickness);
   finishGeometry();
   refreshFoldList();
 }
@@ -307,12 +307,13 @@ function slider(label: string, min: number, max: number, step: number, get: () =
 }
 
 /** Slider whose position is logarithmic in the value. */
-function logSlider(label: string, min: number, max: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(1)): HTMLElement {
+function logSlider(label: string, min: number, max: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(1), onChange?: () => void): HTMLElement {
   const lo = Math.log(min), hi = Math.log(max);
   const toPos = (v: number) => (Math.log(v) - lo) / (hi - lo);
   const val = el('span', { class: 'val' }, fmt(get()));
   const input = el('input', { type: 'range', min: 0, max: 1, step: 0.001, value: toPos(get()) }) as HTMLInputElement;
   input.addEventListener('input', () => { const v = Math.exp(lo + parseFloat(input.value) * (hi - lo)); set(v); val.textContent = fmt(v); });
+  if (onChange) input.addEventListener('change', onChange);
   syncers.push(() => { input.value = String(toPos(get())); val.textContent = fmt(get()); });
   return row(el('label', {}, label), input, val);
 }
@@ -349,10 +350,30 @@ let foldControls: HTMLElement;
 let twistControls: HTMLElement;
 let modeButtons: Record<Mode, HTMLButtonElement>;
 let resRow: HTMLElement;
+let thickRow: HTMLElement;
+/**
+ * Layer height while the slider moves: rescale the bundle heights, the 3D strokes and
+ * bands, and re-mesh, without the voxel exposure and the stroke replay (those run on
+ * release, in the full rebuild).
+ */
+function setThickness(v: number): void {
+  const k = v / plan.thickness;
+  if (!isFinite(k) || k === 1) return;
+  plan.thickness = v;
+  for (const s of plan.strokes) if (s.kind === 'brush3') s.p[2] *= k;
+  for (const b of plan.bands) if (b.kind === 'slab') b.p[2] *= k;
+  if (isFold(bundle)) {
+    const pz = bundle.pz;
+    for (let i = 0; i < pz.length; i++) pz[i] *= k;
+    sync3d(bundle.px, bundle.py, pz, false);
+  }
+  dirty = true;
+}
 function refreshModeUI(): void {
   foldControls.hidden = plan.mode !== 'fold';
   twistControls.hidden = plan.mode !== 'twist';
   resRow.hidden = plan.mode !== 'fold';
+  thickRow.hidden = plan.mode !== 'fold';
   for (const [k, b] of Object.entries(modeButtons)) b.classList.toggle('on', k === plan.mode);
 }
 
@@ -537,6 +558,7 @@ function buildSidebar(): void {
     el('details', { open: true },
       el('summary', {}, 'View'),
       row(el('label', {}, '3D style'), styleSel),
+      (thickRow = logSlider('layer height cm', 0.01, 1, () => plan.thickness, setThickness, (v) => v.toFixed(2), () => { rebuildGeometry(); touched(); })),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
       checkbox('Show creases on flat cloth', () => view.showCreases, (v) => { view.showCreases = v; dirty = true; }),
@@ -977,7 +999,7 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
   }
   const draft = foldDraftLine();
   if (tool === 'fold' && (foldDraft.length || hoverFolded)) {
-    const zTop = (isFold(bundle) ? bundle.maxLayers * LAYER_THICKNESS : 0) + 0.2, zBot = -LAYER_THICKNESS - 0.2;
+    const zTop = (isFold(bundle) ? bundle.maxLayers * plan.thickness : 0) + 0.2, zBot = -plan.thickness - 0.2;
     const poly = (pts: Vec3[], fill: string | null, stroke: string | null, dash = false): void => {
       const q = pts.map(proj);
       if (q.some((v) => !v)) return;

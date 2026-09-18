@@ -71,6 +71,8 @@ export interface Plan {
   base: number;
   /** how deep the cloth colour is, as a fraction of the cloth capacity */
   baseAmount: number;
+  /** cloth thickness in cm: the height of one layer in the 3D bundle (flat folds) */
+  thickness: number;
 }
 
 export const DEFAULT_DYES: DyeDef[] = [
@@ -107,6 +109,7 @@ export function defaultPlan(): Plan {
     params: { ...DEFAULT_PARAMS },
     base: -1,
     baseAmount: 0.8,
+    thickness: 0.1,
   };
 }
 
@@ -196,5 +199,6 @@ export function parsePlan(json: string): Plan {
     params: { ...base.params, ...(p.params ?? {}) },
     base: p.base ?? -1,
     baseAmount: p.baseAmount ?? base.baseAmount,
+    thickness: p.thickness ?? base.thickness,
   };
 }

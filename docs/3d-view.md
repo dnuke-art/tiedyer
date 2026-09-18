@@ -145,7 +145,10 @@ on "Show binding pressure" and the press tint is already in the texture the mesh
 ## 6. Flat folds in 3D
 
 The origami bundle used to be flat with an integer layer index. It now has real height,
-`pz = layer × thickness` with a 1 mm thickness, so a 72-layer kikko is a 7 cm prism. Its
+`pz = layer × thickness`; the thickness is the plan's layer height (default 1 mm, so a
+72-layer kikko is a 7 cm prism; a slider in the View section runs it from 0.1 mm to 1 cm,
+rescaling heights and re-meshing live while it moves and rebuilding exposure and strokes
+on release, with the z of 3D strokes and slab bands scaled along). Its
 top and bottom flags are still analytic (exact from the face stack), but "exposed in any
 direction" comes from the same voxel flood fill the cloth uses:
 
