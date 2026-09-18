@@ -173,6 +173,37 @@ export class Renderer {
     this.drawMarkers(ctx, markers.map((m) => apply(V, m)));
   }
 
+  /**
+   * The unfolded cloth for export: the dye image scaled to `px` on the long side with
+   * no padding or markers, plus the crease pattern if the view shows it. The detail
+   * is the sim's texel resolution; this only chooses the pixel size of the file.
+   */
+  exportFlat(sim: Sim, faces: Face[], opts: ViewOpts, px: number): HTMLCanvasElement {
+    const c = document.createElement('canvas');
+    const k = px / Math.max(sim.W, sim.H);
+    c.width = Math.max(1, Math.round(sim.W * k));
+    c.height = Math.max(1, Math.round(sim.H * k));
+    const ctx = c.getContext('2d')!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(this.src, 0, 0, sim.N, sim.M, 0, 0, c.width, c.height);
+    if (opts.showCreases) {
+      const lw = Math.max(1, px / 1200);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = lw;
+      ctx.setLineDash([4 * lw, 3 * lw]);
+      ctx.beginPath();
+      for (const f of faces) {
+        for (let i = 0; i < f.flat.length; i++) {
+          const a = f.flat[i], b = f.flat[(i + 1) % f.flat.length];
+          ctx.moveTo(a.x * k, a.y * k); ctx.lineTo(b.x * k, b.y * k);
+        }
+      }
+      ctx.stroke();
+    }
+    return c;
+  }
+
   drawFolded(sim: Sim, faces: Face[], bands: BandStamp[], opts: ViewOpts, markers: Vec2[], overlay?: (ctx: CanvasRenderingContext2D, V: Mat) => void): void {
     const c = this.folded;
     Renderer.fit(c, this.dpr);

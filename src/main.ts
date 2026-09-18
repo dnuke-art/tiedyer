@@ -558,6 +558,13 @@ function buildSidebar(): void {
     el('details', { open: true },
       el('summary', {}, 'View'),
       row(el('label', {}, '3D style'), styleSel),
+      (() => {
+        const sel = el('select', { title: 'Pixel size of the long side of the PNG the Image button saves. Detail comes from the resolution setting under Cloth.' },
+          ...[1024, 2048, 4096].map((n) => el('option', { value: n }, `${n} px`))) as HTMLSelectElement;
+        sel.value = String(exportPx);
+        sel.addEventListener('change', () => { exportPx = parseInt(sel.value); try { localStorage.setItem('tiedyer.exportPx', sel.value); } catch { /* ignore */ } });
+        return row(el('label', {}, 'image size'), sel);
+      })(),
       (thickRow = logSlider('layer height cm', 0.01, 1, () => plan.thickness, setThickness, (v) => v.toFixed(2), () => { rebuildGeometry(); touched(); })),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
@@ -585,11 +592,17 @@ function savePlan(): void {
   deliverFile('tiedye-plan.json', toBase64(serializePlan(plan)), 'application/json', 'Tie-dye plan');
 }
 
-/** Export the unfolded pattern as a PNG at the on-screen resolution. */
-function saveImage(): void {
+/** pixel size of the long side of an exported image */
+let exportPx = 2048;
+try { exportPx = parseInt(localStorage.getItem('tiedyer.exportPx') ?? '') || 2048; } catch { /* ignore */ }
+
+/** Export the unfolded pattern as a PNG, `exportPx` on the long side. */
+async function saveImage(): Promise<void> {
   renderOnce();
-  const data = flatCanvas.toDataURL('image/png').split(',')[1];
-  deliverFile('tiedye.png', data, 'image/png', 'Tie-dye pattern');
+  const c = renderer.exportFlat(sim, faces, view, exportPx);
+  const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/png'));
+  if (!blob) return;
+  deliverFile(`tiedye-${c.width}x${c.height}.png`, new Uint8Array(await blob.arrayBuffer()), 'image/png', 'Tie-dye pattern');
 }
 
 /** The bundle as a .glb: the 3D view's mesh with the dye image as its texture. */
@@ -1253,6 +1266,7 @@ function renderOnce(): void {
   addStroke,
   setTool,
   buildGlb,
+  exportFlat: (px: number) => { renderOnce(); return renderer.exportFlat(sim, faces, view, px); },
 };
 
 buildSidebar();
