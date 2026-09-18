@@ -178,6 +178,16 @@ the model marks the texel on the flat cloth and reports its bundle position and 
 it is exposed or buried. Hovering the flat cloth projects that texel's position and drops
 a marker on the model.
 
+**Folding in 3D.** The fold tool works in the 3D view as well. A fold line is still a
+line on the table: a press with the fold tool starts an orbit gesture like any other,
+and if the pointer is released within six pixels of where it went down it is a tap and
+places a fold point instead. The point is the picked surface point dropped onto the xy
+plane, or, off the bundle, where the ray meets the table plane, so the two points can be
+placed on the stack or beside it. The preview draws the crease as a translucent plane
+cutting through the stack, from the table to just above the top layer, and tints the
+moving part of every face on the top plane; the flat view shows the crease pattern the
+fold would make, as it does in 2D.
+
 ## 8. Making it cheap on a phone
 
 The first 3D build ran hot. Every pointer move redrew both views, re-ran the colour

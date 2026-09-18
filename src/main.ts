@@ -133,7 +133,7 @@ let foldDraft: Vec2[] = [];
 /** The fold line being drawn: first click fixes a point, the pointer sets the angle
  *  (second click fixes it), then the pointer picks the side that moves. */
 function foldDraftLine(): { p: Vec2; d: Vec2; moveSign?: 1 | -1 } | null {
-  if (tool !== 'fold' || plan.mode !== 'fold' || is3d() || !foldDraft.length) return null;
+  if (tool !== 'fold' || plan.mode !== 'fold' || !foldDraft.length) return null;
   const a = foldDraft[0];
   const b = foldDraft.length > 1 ? foldDraft[1] : hoverFolded;
   if (!b || dist(a, b) < 1e-6) return null;
@@ -144,6 +144,20 @@ function foldDraftLine(): { p: Vec2; d: Vec2; moveSign?: 1 | -1 } | null {
     if (Math.abs(s) > 1e-6) moveSign = s > 0 ? 1 : -1;
   }
   return { p: a, d, moveSign };
+}
+/** One click of the fold tool at bundle point p: first two fix the line, the third picks the side. */
+function foldClick(p: Vec2, under: boolean): void {
+  if (foldDraft.length < 2) {
+    foldDraft.push(p);
+  } else {
+    const a = foldDraft[0], d = normalize({ x: foldDraft[1].x - a.x, y: foldDraft[1].y - a.y });
+    const s = side(a, d, p);
+    if (Math.abs(s) > 1e-6 && dist(foldDraft[0], foldDraft[1]) > 1e-6) {
+      addFolds([{ p: a, d, moveSign: s > 0 ? 1 : -1, under, label: undefined }]);
+    }
+    foldDraft = [];
+  }
+  dirty = true;
 }
 let hoverFolded: Vec2 | null = null;
 let hoverFlat: Vec2 | null = null;
@@ -327,7 +341,7 @@ const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
   band: 'drag to place rubber band / clamp (resist)',
-  fold: 'click two points for the crease, then click the side that folds over (shift = fold under)',
+  fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
   orbit: 'drag to orbit · wheel or +/− to zoom · shift-drag to pan · turn on paint to dye or band',
 };
@@ -652,6 +666,24 @@ function hit3d(ev: PointerEvent | MouseEvent): Hit {
   return hit;
 }
 
+/** Fold lines live on the xy plane: the point under the cursor is the picked surface
+ *  point dropped onto that plane, or, off the bundle, where the ray meets the table. */
+function foldPoint3d(ev: PointerEvent | MouseEvent): Vec2 | null {
+  if (!view3d) return null;
+  const h = hit3d(ev);
+  if (h) return { x: h.p[0], y: h.p[1] };
+  const r = foldedCanvas.getBoundingClientRect();
+  const k = folded3dCanvas.width / Math.max(1, r.width);
+  const d = view3d.rayDir((ev.clientX - r.left) * k, (ev.clientY - r.top) * k);
+  const e = view3d.eyePos();
+  if (Math.abs(d[2]) < 1e-6) return null;
+  const t = -e[2] / d[2];
+  if (t <= 0) return null;
+  return { x: e[0] + d[0] * t, y: e[1] + d[1] * t };
+}
+/** a press with the fold tool in 3D: a tap places a point, a drag orbits */
+let foldPress: { x: number; y: number; p: Vec2 | null; under: boolean } | null = null;
+
 function stampAt3d(ev: PointerEvent): void {
   const h = hit3d(ev);
   if (!h) return;
@@ -693,6 +725,7 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
   hoverFolded = renderer.foldedToCm(ev);
   if (is3d()) {
     hover3d = ev;
+    if (tool === 'fold') { hoverFolded = foldPoint3d(ev); dirty = true; }
     if (dragging && tool === 'dye') {
       const h = hit3d(ev);
       if (h && (!lastStamp3 || len3(sub3(lastStamp3, h.p)) >= brush.r * 0.35)) { stampAt3d(ev); lastStamp3 = h.p; }
@@ -740,9 +773,11 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       return;
     }
   }
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || tool === 'fold' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
-    hover3d = null;
+    foldPress = tool === 'fold' && plan.mode === 'fold' && ev.button === 0 && !ev.altKey && !ev.ctrlKey
+      ? { x: ev.clientX, y: ev.clientY, p: foldPoint3d(ev), under: ev.shiftKey } : null;
+    if (!foldPress) hover3d = null;
     return;
   }
   if (ev.button !== 0) return;
@@ -758,23 +793,23 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     dragging = true;
     lastStamp = p;
     stampAt(p);
-  } else if (tool === 'fold' && plan.mode === 'fold' && !is3d()) {
-    if (foldDraft.length < 2) {
-      foldDraft.push(p);
-    } else {
-      const a = foldDraft[0], d = normalize({ x: foldDraft[1].x - a.x, y: foldDraft[1].y - a.y });
-      const s = side(a, d, p);
-      if (Math.abs(s) > 1e-6 && dist(foldDraft[0], foldDraft[1]) > 1e-6) {
-        addFolds([{ p: a, d, moveSign: s > 0 ? 1 : -1, under: ev.shiftKey, label: undefined }]);
-      }
-      foldDraft = [];
-    }
+  } else if (tool === 'fold' && plan.mode === 'fold') {
+    foldClick(p, ev.shiftKey);
   }
 });
 const release = (ev: PointerEvent) => {
   touches.delete(ev.pointerId);
   if (touches.size < 2) pinchDist = 0;
-  if (gesture) { gesture = null; return; }
+  if (gesture) {
+    gesture = null;
+    // a tap (no drag) with the fold tool in 3D places a fold point
+    if (foldPress) {
+      const moved = Math.hypot(ev.clientX - foldPress.x, ev.clientY - foldPress.y);
+      if (moved < 6 && foldPress.p) foldClick(foldPress.p, foldPress.under);
+      foldPress = null;
+    }
+    return;
+  }
   if (dragging) {
     dragging = false;
     lastStamp = null;
@@ -938,6 +973,57 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
       ctx.beginPath(); ctx.arc(q.x, q.y, tool === 'inspect' ? 5 * dpr : rpx, 0, Math.PI * 2);
       ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : tool === 'band' ? '#222' : '#ff7a1a';
       ctx.lineWidth = 2 * dpr; ctx.stroke();
+    }
+  }
+  const draft = foldDraftLine();
+  if (tool === 'fold' && (foldDraft.length || hoverFolded)) {
+    const zTop = (isFold(bundle) ? bundle.maxLayers * LAYER_THICKNESS : 0) + 0.2, zBot = -LAYER_THICKNESS - 0.2;
+    const poly = (pts: Vec3[], fill: string | null, stroke: string | null, dash = false): void => {
+      const q = pts.map(proj);
+      if (q.some((v) => !v)) return;
+      ctx.beginPath();
+      q.forEach((v, i) => (i ? ctx.lineTo(v!.x, v!.y) : ctx.moveTo(v!.x, v!.y)));
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash(dash ? [6 * dpr, 4 * dpr] : []); ctx.stroke(); ctx.setLineDash([]); }
+    };
+    if (draft) {
+      // the cutting plane: the line, clipped to the bundle's extent plus a margin, from the table to above the stack
+      let lo = Infinity, hi = -Infinity;
+      for (const f of faces) for (const q of f.flat) { const b = apply(f.T, q); const t = (b.x - draft.p.x) * draft.d.x + (b.y - draft.p.y) * draft.d.y; lo = Math.min(lo, t); hi = Math.max(hi, t); }
+      if (isFinite(lo)) {
+        lo -= 3; hi += 3;
+        const A = { x: draft.p.x + draft.d.x * lo, y: draft.p.y + draft.d.y * lo }, B = { x: draft.p.x + draft.d.x * hi, y: draft.p.y + draft.d.y * hi };
+        poly([[A.x, A.y, zBot], [B.x, B.y, zBot], [B.x, B.y, zTop], [A.x, A.y, zTop]], 'rgba(255,122,26,0.18)', 'rgba(255,122,26,0.9)', true);
+      }
+      if (draft.moveSign) {
+        // the moving parts of every face, on a scratch layer so overlapping layers blend once
+        const c = ctx.canvas;
+        if (foldTint.width !== c.width || foldTint.height !== c.height) { foldTint.width = c.width; foldTint.height = c.height; }
+        const t = foldTint.getContext('2d')!;
+        t.setTransform(1, 0, 0, 1, 0, 0);
+        t.clearRect(0, 0, c.width, c.height);
+        t.fillStyle = '#ff7a1a';
+        for (const f of faces) {
+          const mp = clipPolygon(f.flat.map((q) => apply(f.T, q)), draft.p, draft.d, draft.moveSign);
+          if (mp.length < 3) continue;
+          const q = mp.map((v) => proj([v.x, v.y, zTop]));
+          if (q.some((v) => !v)) continue;
+          t.beginPath();
+          q.forEach((v, i) => (i ? t.lineTo(v!.x, v!.y) : t.moveTo(v!.x, v!.y)));
+          t.closePath();
+          t.fill();
+        }
+        ctx.save(); ctx.globalAlpha = 0.3; ctx.drawImage(foldTint, 0, 0); ctx.restore();
+      }
+    }
+    // the fixed point(s) and the cursor on the table plane
+    const marks = foldDraft.length ? foldDraft : (hoverFolded ? [hoverFolded] : []);
+    for (const m of marks) {
+      const q = proj([m.x, m.y, zTop]);
+      if (!q) continue;
+      ctx.beginPath(); ctx.arc(q.x, q.y, 4 * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff7a1a'; ctx.fill();
     }
   }
   if (bandStart && bandEnd) {

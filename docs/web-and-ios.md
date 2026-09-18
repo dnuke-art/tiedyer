@@ -50,7 +50,7 @@ Pencil. A few interactions are naturally different by input device:
 | Orbit the 3D bundle | Right-drag always; left-drag when Paint is off | One finger when Paint is off (turn Paint off to look around) |
 | Zoom | Wheel, or + / − | Pinch, or + / − |
 | Pan | Shift-drag or middle-drag | Two-finger drag |
-| Draw a fold line | Click, move to set the angle, click, click the side | Tap, move, tap, tap |
+| Draw a fold line (2D or 3D) | Click, move to set the angle, click, click the side; in 3D a drag orbits instead | Tap, move, tap, tap; in 3D a drag orbits instead |
 | Select a dye | Click its swatch | Tap its swatch |
 | Change a dye's colour | Click the selected swatch again | Tap the selected swatch again; the iOS colour sheet slides up |
 | Cancel a fold line / undo a stroke | Esc / z | Undo buttons in the sidebar |
