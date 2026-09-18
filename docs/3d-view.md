@@ -185,8 +185,11 @@ places a fold point instead. The point is the picked surface point dropped onto 
 plane, or, off the bundle, where the ray meets the table plane, so the two points can be
 placed on the stack or beside it. The preview draws the crease as a translucent plane
 cutting through the stack, from the table to just above the top layer, and tints the
-moving part of every face on the top plane; the flat view shows the crease pattern the
-fold would make, as it does in 2D.
+moving part of every plate of the exact mesh at that plate's own height (a first version
+put the tint on one plane at the top of the tallest layer, which floated above the lower
+plateaus and drifted in perspective); the flat view shows the crease pattern the fold
+would make, as it does in 2D. Making the cut itself read better, for instance by shading
+the side of the bundle behind the plane, is GitHub issue #1.
 
 ## 8. Making it cheap on a phone
 

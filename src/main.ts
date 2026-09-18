@@ -997,17 +997,19 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
         poly([[A.x, A.y, zBot], [B.x, B.y, zBot], [B.x, B.y, zTop], [A.x, A.y, zTop]], 'rgba(255,122,26,0.18)', 'rgba(255,122,26,0.9)', true);
       }
       if (draft.moveSign) {
-        // the moving parts of every face, on a scratch layer so overlapping layers blend once
+        // the moving part of every plate of the exact mesh, at the plate's own height, on a
+        // scratch layer so overlapping layers blend once
         const c = ctx.canvas;
         if (foldTint.width !== c.width || foldTint.height !== c.height) { foldTint.width = c.width; foldTint.height = c.height; }
         const t = foldTint.getContext('2d')!;
         t.setTransform(1, 0, 0, 1, 0, 0);
         t.clearRect(0, 0, c.width, c.height);
         t.fillStyle = '#ff7a1a';
-        for (const f of faces) {
-          const mp = clipPolygon(f.flat.map((q) => apply(f.T, q)), draft.p, draft.d, draft.moveSign);
+        const cells = view3d.exportMesh()?.cells ?? faces.map((f) => ({ poly: f.flat.map((q) => apply(f.T, q)), z: zTop }));
+        for (const cell of cells) {
+          const mp = clipPolygon(cell.poly, draft.p, draft.d, draft.moveSign);
           if (mp.length < 3) continue;
-          const q = mp.map((v) => proj([v.x, v.y, zTop]));
+          const q = mp.map((v) => proj([v.x, v.y, cell.z + 0.03]));
           if (q.some((v) => !v)) continue;
           t.beginPath();
           q.forEach((v, i) => (i ? t.lineTo(v!.x, v!.y) : t.moveTo(v!.x, v!.y)));

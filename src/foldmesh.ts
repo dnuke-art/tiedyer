@@ -25,6 +25,8 @@ export interface Mesh3 {
   /** uv per vertex, 0..1 over the flat cloth */
   uv: Float32Array;
   idx: Uint32Array;
+  /** the top cells (bundle xy polygon at height z), for overlays that follow the plates */
+  cells?: { poly: Vec2[]; z: number }[];
 }
 
 const AREA_EPS = 1e-6;
@@ -35,6 +37,7 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
   const index = indexFaces(faces);
   const P = index.folded;
   const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const cellsOut: { poly: Vec2[]; z: number }[] = [];
   const t = thickness;
 
   const addVert = (p: Vec2, z: number, flat: Vec2): number => {
@@ -100,6 +103,7 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
       const c = { x: cx / n, y: cy / n };
       const h = depthAt(low, c);
       const z = h * t;
+      cellsOut.push({ poly: cell, z });
       // top
       const top: number[] = cell.map((p) => addVert(p, z, apply(Tinv, p)));
       for (let i = 1; i + 1 < n; i++) idx.push(top[0], top[i], top[i + 1]);
@@ -131,5 +135,5 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
       }
     }
   }
-  return { pos: Float32Array.from(pos), uv: Float32Array.from(uv), idx: Uint32Array.from(idx) };
+  return { pos: Float32Array.from(pos), uv: Float32Array.from(uv), idx: Uint32Array.from(idx), cells: cellsOut };
 }
