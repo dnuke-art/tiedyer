@@ -1,9 +1,10 @@
 // WebGL2 solver: the same diffusion / fixing step as Sim.step, run as a fragment
 // shader over the flat texture. Free dye f and fixed dye h are RGBA32F textures
 // (one channel per dye, up to 4); free bleach b is a third texture (red channel),
-// so the ping-pong framebuffers have three render targets. The layer-contact graph is a static RGBA32F
-// texture of (upX, upY, downX, downY) texel coordinates, and press/validity is a
-// second static texture. Two FBOs ping-pong (f, h) with multiple render targets.
+// so the ping-pong framebuffers have three render targets (48 bytes a pixel). Where the
+// GPU refuses that (the iOS simulator does), each step draws twice instead: f + h, then
+// b; see docs/gpu-solver.md. The layer-contact graph is a static RGBA32F texture of
+// (upX, upY, downX, downY) texel coordinates, and press/validity is a second static texture.
 //
 // The CPU arrays in Sim stay the source of truth for strokes and replays: upload()
 // after they change, download() before a stroke is applied on top of GPU state.
