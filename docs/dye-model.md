@@ -151,7 +151,7 @@ texel blocks the front entirely.
 | More bleed between layers in the batch | Thru layers up |
 | More of the dye to survive rinsing | Fixing rate or capacity up |
 | A resist | Band or clamp; tighten with band halo and leak |
-| To lighten something | Bleach, or a lower cloth depth for the base colour |
+| To lighten something | Bleach, or a lower base dye for the cloth colour |
 | Stamp-based painting with no time dependence | Hold flow off |
 
 ## Constants that are not sliders

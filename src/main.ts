@@ -470,7 +470,7 @@ function refreshFoldList(): void {
 
 const swatchWrap = el('div', { class: 'swatches' });
 const baseWrap = el('div', { class: 'swatches' });
-const baseDepth = slider('cloth depth', 0.1, 1, 0.05, () => plan.baseAmount, (v) => { plan.baseAmount = v; replay(); touched(); });
+const baseDepth = slider('base dye', 0.1, 1, 0.05, () => plan.baseAmount, (v) => { plan.baseAmount = v; replay(); touched(); });
 function refreshSwatches(): void {
   syncControls();
   const bleach = el('div', { class: 'swatch bleach' + (brush.dye === BLEACH ? ' on' : ''), title: 'bleach: removes dye instead of adding it' }, 'BL');
