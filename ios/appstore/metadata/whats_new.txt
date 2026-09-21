@@ -21,6 +21,9 @@ RUBBER BANDS THAT WORK LIKE REAL ONES
 • Band width and Undo band are new; bands are shaded on the cloth where they cross it, in 2D and on the 3D model
 
 ALSO
+• Adding folds stays quick even on a very folded bundle (many times faster with hundreds of layers)
+• Nothing sits under the clock or the home indicator, including Help, and the layout is right from the moment the app opens
+• No more accidental zoom from a double tap
 • The cloth colour and its strength (now called Base dye) are under Cloth
 • A small readout in the corner of the bundle shows the layer count, how deep the last squirt reached, and what is under your finger
 • The simulation runs on the GPU on more devices
