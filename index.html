@@ -27,15 +27,15 @@
             <div class="stack" id="stack">
               <canvas id="folded3d"></canvas>
               <canvas id="folded"></canvas>
-              <!-- heads-up corner: view and camera controls, the mode pill, then the readout -->
+              <!-- heads-up corner: view and camera controls, then the mode pill; the readout sits bottom right -->
               <div class="hud" id="hud">
                 <div class="seg" role="group" aria-label="Bundle view"><button id="v2d" class="small on">2D</button><button id="v3d" class="small">3D</button></div>
                 <div id="cam3d" class="cam" role="group" aria-label="3D camera" hidden>
                   <button id="paintBtn" class="small" title="on: drag paints with the Dye/Band tool · off: drag orbits (right-drag always orbits; two fingers pan and pinch-zoom)">paint</button><button id="zoomIn" class="small" title="zoom in">+</button><button id="zoomOut" class="small" title="zoom out">−</button><button id="fitView" class="small" title="fit the bundle">fit</button>
                 </div>
                 <span id="mode-chip" class="chip"></span>
-                <div id="status"></div>
               </div>
+              <div id="status"></div>
             </div>
           </section>
         </div>
@@ -97,7 +97,7 @@
         <p>Drag to squirt or band. Hold still to keep pouring. <kbd>space</kbd> play/pause · <kbd>z</kbd> undo stroke · <kbd>esc</kbd> cancel a fold line · <kbd>?</kbd> this help. The ☰ button hides and shows the controls (on a phone they slide in over the views).</p>
         <p>Drag the bar between the two views, or use <b>split</b> under View, to give one of them more room; double-click the bar to even them out. The views sit side by side when there is more width than height and stack otherwise, and keep the same split when you rotate the device.</p>
 
-        <p class="note">Full write-up: docs/dye-model.md in the source repository.</p>
+        <p class="note">Full write-up: docs/dye-model.md in the source repository. Build <span id="build-id"></span>.</p>
       </div>
     </dialog>
     <script type="module" src="/src/main.ts"></script>

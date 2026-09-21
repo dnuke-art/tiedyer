@@ -951,6 +951,7 @@ window.addEventListener('keydown', (ev) => {
 // Frame loop
 
 const statusEl = document.getElementById('status')!;
+document.getElementById('build-id')!.textContent = __BUILD__;
 
 let frameCount = 0;
 /** keep pouring the held squirt: grow its soak with time and re-apply it from the snapshot */
@@ -1291,13 +1292,13 @@ function renderOnce(): void {
     renderer.drawFolded(sim, faces, plan.bands, view, foldedMarkers, overlay);
   }
 
-  // the readout in the corner of the bundle view: steady metrics first, then the lines
-  // that come and go (squirt depth, pouring, hover) so the top does not jump
+  // the readout in the bottom corner of the bundle view: the lines that come and go
+  // (hover, pouring, squirt depth) on top, the steady metrics at the bottom edge so they stay put
   const shape = plan.mode === 'twist'
     ? (twistStatus ? [`twisting: ${twistStatus}`] : [`twist ${plan.twist.turns} turns`, `${sim.N}×${sim.M} particles`])
     : [`${faces.length} faces · ${isFold(bundle) ? bundle.maxLayers : 0} layers`, `${sim.N}×${sim.M} texels`];
   const pouring = hold && dragging ? `pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
-  statusEl.textContent = [...shape, `${gpu ? 'GPU' : 'CPU'} · t=${sim.t} · ${__BUILD__}`, lastReach, pouring, hoverInfo].filter(Boolean).join('\n');
+  statusEl.textContent = [hoverInfo, pouring, lastReach, ...shape, `${gpu ? 'GPU' : 'CPU'} · t=${sim.t}`].filter(Boolean).join('\n');
 }
 
 // Debug / scripting handle (also handy for automated tests).
