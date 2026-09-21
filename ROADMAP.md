@@ -3,6 +3,52 @@
 Notes, not commitments. The near-term list is tie-dye. The second half is about what
 the engine underneath actually is, and where that could go.
 
+## Parked until the App Store submission is approved
+
+Started 2026-09-21, with build 0.1.7 in TestFlight and the resubmission being prepared.
+Until Apple approves it, the app only gets what App Review asks for. Everything else
+waits here.
+
+**Bugs**
+
+- The ☰ button disappeared on the iPhone and stayed gone until the phone was rotated to
+  landscape; after that the layout recovered. Not reproduced yet and the cause is
+  unknown. Next time: note what was on screen, the orientation, whether the panel had
+  just been opened or closed, and the build (Help shows it at the bottom).
+
+**Loose ends from the layout rework**
+
+- Relaunching after working on a twist re-runs the cloth simulation for a few seconds,
+  because the autosave keeps the twist's settings, not the twisted cloth. Save the
+  finished cloth with the plan so it reopens instantly.
+- Tool hints only exist as tooltips on the Dye / Band / Orbit switch, so on a phone,
+  which has no hover, they never show.
+- In the Batch section the step counter (`t 150`) wraps onto its own line on a phone.
+- The panel title says "tiedyer"; the App Store name and Help say "Tie Dyer".
+- Double-clicking the divider resets the split to 50/50, but there is no touch
+  equivalent (the Split slider under View is the only way on a phone).
+- A stroke that starts at the very bottom of the screen can be taken by iOS as the
+  home swipe, now that the views run to the edge. If that bites, defer the system
+  gesture there (`preferredScreenEdgesDeferringSystemGestures` in the iOS shell).
+
+**Bands**
+
+- Old round bands (from 2D plans before 2026-09-21) are not drawn in 3D, and old
+  tilted 3D bands are not drawn in 2D. They still resist dye.
+- The 3D view shades at most 32 bands; more still work but do not show in 3D.
+- While tying a band in 3D, the two point markers float at the top of the stack
+  rather than sitting on the surface where you tapped.
+
+**GPU**
+
+- Split (two-pass) mode does twice the fragment work; cheaper options are in
+  `docs/gpu-solver.md`. Check a pre-A11 phone's readout if one turns up.
+
+**Store listing**
+
+- iPad 13" screenshots still show the old layout (the iPhone ones are being redone for
+  the resubmission).
+
 ## Near term (tie-dye)
 
 - Calibrate against real cloth: dye a kikko and a spiral, photograph, tune spread, soak,
