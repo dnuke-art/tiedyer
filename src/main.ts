@@ -397,7 +397,11 @@ function setTool(t: Tool): void {
 }
 
 const foldList = el('ol', { class: 'folds' });
+/** the fold list, folded away until wanted; its heading carries the count */
+const foldListSummary = el('summary', {}, 'Folds');
+const foldListBox = el('details', { class: 'sub' }, foldListSummary, foldList);
 function refreshFoldList(): void {
+  foldListSummary.textContent = `Folds (${plan.folds.length})`;
   foldList.replaceChildren(
     ...plan.folds.map((f) => el('li', {}, f.label ?? `line (${f.p.x.toFixed(1)}, ${f.p.y.toFixed(1)}) ∠${((Math.atan2(f.d.y, f.d.x) * 180) / Math.PI).toFixed(0)}°${f.under ? ' under' : ''}`)),
   );
@@ -480,7 +484,7 @@ function buildSidebar(): void {
         toolButtons.fold),
       row(btn('Undo fold', () => { plan.folds.pop(); rebuildGeometry(); }),
         btn('Clear folds', () => { plan.folds = []; rebuildGeometry(); })),
-      foldList);
+      foldListBox);
   twistControls = el('div', {},
       row(el('label', {}, 'particles'), partSel),
       row(el('label', {}, 'pinch at'), cx, '×', cy, toolButtons.centre),
