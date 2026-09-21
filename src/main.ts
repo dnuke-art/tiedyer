@@ -216,6 +216,8 @@ function lineAcross(p: Vec2, d: Vec2, margin = 1): [Vec2, Vec2] | null {
 }
 /** scratch layer for bands on the 2D bundle, clipped to the cloth */
 const bandLayer = document.createElement('canvas');
+/** the bands last handed to the 3D view */
+let last3dBands = '';
 
 let hoverFolded: Vec2 | null = null;
 let hoverFlat: Vec2 | null = null;
@@ -1225,31 +1227,11 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
       ctx.fillStyle = '#ff7a1a'; ctx.fill();
     }
   }
-  // bands: each is a loop standing on the table right around the bundle, drawn as the
-  // strip it squeezes (width w) from the table to the top of the stack; the one being
-  // tied is outlined in the band colour
+  // bands are shaded on the model by the 3D view; here only the points of the one being tied
   const box = bundleBox();
   if (box) {
-    const zTop = box.z1 + 0.2, zBot = -0.2;
-    const strip3d = (p: Vec2, d: Vec2, w: number, fill: string, stroke: string, dash: boolean): void => {
-      const ends = lineAcross(p, d);
-      if (!ends) return;
-      const n = { x: -d.y * w / 2, y: d.x * w / 2 };
-      for (const s of [-1, 1]) {
-        const [A, B] = ends.map((e) => ({ x: e.x + n.x * s, y: e.y + n.y * s }));
-        const q = ([[A.x, A.y, zBot], [B.x, B.y, zBot], [B.x, B.y, zTop], [A.x, A.y, zTop]] as Vec3[]).map(proj);
-        if (q.some((v) => !v)) continue;
-        ctx.beginPath();
-        q.forEach((v, i) => (i ? ctx.lineTo(v!.x, v!.y) : ctx.moveTo(v!.x, v!.y)));
-        ctx.closePath();
-        ctx.fillStyle = fill; ctx.fill();
-        ctx.strokeStyle = stroke; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash(dash ? [6 * dpr, 4 * dpr] : []); ctx.stroke(); ctx.setLineDash([]);
-      }
-    };
-    for (const b of plan.bands) if (isUpright(b)) strip3d({ x: b.p[0], y: b.p[1] }, { x: b.n[1], y: -b.n[0] }, b.w, 'rgba(20,20,24,0.28)', 'rgba(20,20,24,0.8)', false);
+    const zTop = box.z1 + 0.2;
     if (tool === 'band') {
-      const draft = bandDraftLine();
-      if (draft) strip3d(draft.p, draft.d, brush.bandW, 'rgba(215,213,207,0.22)', 'rgba(215,213,207,0.95)', true);
       const marks = [...bandDraft, ...(hoverFolded ? [hoverFolded] : [])];
       for (const m of marks) {
         const q = proj([m.x, m.y, zTop]);
@@ -1419,7 +1401,13 @@ function renderOnce(): void {
     Renderer.fit(folded3dCanvas, Math.min(renderer.dpr, 1.5));
     if (uploadedTex !== texVersion) { view3d.setTexture(renderer.src); uploadedTex = texVersion; }
     const cam = view3d.cam;
-    const key3d = `${texVersion}|${geomVersion}|${cam.az},${cam.el},${cam.dist},${cam.target.join(',')}|${view3d.style}|${folded3dCanvas.width}x${folded3dCanvas.height}`;
+    // bands, and the one being tied, shaded where they cross the model
+    const draftBand = tool === 'band' ? bandDraftLine() : null;
+    const bands3: { p: Vec3; n: Vec3; w: number; draft?: boolean }[] = plan.bands.filter((b): b is SlabBand => b.kind === 'slab').map((b) => ({ p: b.p, n: b.n, w: b.w }));
+    if (draftBand) bands3.push({ p: [draftBand.p.x, draftBand.p.y, 0], n: [-draftBand.d.y, draftBand.d.x, 0], w: brush.bandW, draft: true });
+    const bandsKey = bands3.map((b) => `${b.p.join(',')};${b.n.join(',')};${b.w}`).join('|');
+    if (bandsKey !== last3dBands) { last3dBands = bandsKey; view3d.setBands(bands3); }
+    const key3d = `${texVersion}|${geomVersion}|${cam.az},${cam.el},${cam.dist},${cam.target.join(',')}|${view3d.style}|${folded3dCanvas.width}x${folded3dCanvas.height}|${bandsKey}`;
     if (key3d !== last3dKey) { last3dKey = key3d; view3d.draw(); }
     draw3dOverlay(hit);
   } else if (plan.mode === 'twist') {

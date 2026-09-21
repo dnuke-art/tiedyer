@@ -66,6 +66,22 @@ export function perp(n: Vec3): Vec3 {
 // ---------------------------------------------------------------------------
 // shaders
 
+/** most bands the 3D view shades at once */
+const MAX_BANDS = 32;
+const BAND_GLSL = `
+// bands: planes (n, d) with n.p + d = 0, and (half width, draft) in uBandW; a surface
+// point inside one is shaded dark (a band that is tied) or orange (one being tied)
+uniform vec4 uBands[${MAX_BANDS}]; uniform vec2 uBandW[${MAX_BANDS}]; uniform int uNBands;
+vec3 bandShade(vec3 c, vec3 p) {
+  for (int i = 0; i < ${MAX_BANDS}; i++) {
+    if (i >= uNBands) break;
+    float d = abs(dot(uBands[i].xyz, p) + uBands[i].w);
+    float k = 1.0 - smoothstep(uBandW[i].x - 0.04, uBandW[i].x + 0.04, d);
+    c = uBandW[i].y > 0.5 ? mix(c, vec3(1.0, 0.48, 0.1), 0.5 * k) : mix(c, vec3(0.1, 0.1, 0.12), 0.72 * k);
+  }
+  return c;
+}`;
+
 const MESH_VS = `#version 300 es
 in vec3 aPos; in vec2 aUv; in float aId;
 uniform mat4 uMVP;
@@ -77,6 +93,7 @@ precision highp float;
 in vec2 vUv; in vec3 vPos; flat in float vId;
 uniform sampler2D uTex; uniform vec3 uLight; uniform vec3 uEye; uniform int uIdMode; uniform float uCloth;
 uniform int uIdFromUv; uniform vec2 uGrid;
+${BAND_GLSL}
 layout(location = 0) out vec4 o;
 layout(location = 1) out vec4 oD;
 vec4 encode(float id) { float v = id + 1.0; return vec4(mod(v, 256.0) / 255.0, mod(floor(v / 256.0), 256.0) / 255.0, floor(v / 65536.0) / 255.0, 1.0); }
@@ -94,7 +111,7 @@ void main() {
   vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
   vec3 v = normalize(uEye - vPos);
   if (dot(n, v) < 0.0) n = -n;
-  vec3 c = uCloth > 0.5 ? texture(uTex, vUv).rgb : vec3(0.93);
+  vec3 c = bandShade(uCloth > 0.5 ? texture(uTex, vUv).rgb : vec3(0.93), vPos);
   float diff = max(dot(n, uLight), 0.0);
   float spec = pow(max(dot(normalize(uLight + v), n), 0.0), 24.0) * 0.12;
   o = vec4(c * (0.42 + 0.6 * diff) + spec, 1.0);
@@ -104,20 +121,21 @@ const SPLAT_VS = `#version 300 es
 in vec2 aCorner;
 in vec3 aPos; in vec3 aNormal; in vec2 aUv; in float aId;
 uniform mat4 uMVP; uniform float uSize;
-out vec2 vCorner; out vec2 vUv; out vec3 vN; flat out float vId;
+out vec2 vCorner; out vec2 vUv; out vec3 vN; out vec3 vPos; flat out float vId;
 void main() {
   vec3 n = normalize(aNormal);
   vec3 a = abs(n.x) < 0.9 ? vec3(1,0,0) : vec3(0,1,0);
   vec3 t = normalize(cross(n, a)); vec3 b = cross(n, t);
   vec3 p = aPos + (t * aCorner.x + b * aCorner.y) * uSize;
-  vCorner = aCorner; vUv = aUv; vN = n; vId = aId;
+  vCorner = aCorner; vUv = aUv; vN = n; vPos = aPos; vId = aId;
   gl_Position = uMVP * vec4(p, 1.0);
 }`;
 
 const SPLAT_FS = `#version 300 es
 precision highp float;
-in vec2 vCorner; in vec2 vUv; in vec3 vN; flat in float vId;
+in vec2 vCorner; in vec2 vUv; in vec3 vN; in vec3 vPos; flat in float vId;
 uniform sampler2D uTex; uniform vec3 uLight; uniform vec3 uEye; uniform int uIdMode; uniform float uCloth;
+${BAND_GLSL}
 layout(location = 0) out vec4 o;
 layout(location = 1) out vec4 oD;
 vec4 encode(float id) { float v = id + 1.0; return vec4(mod(v, 256.0) / 255.0, mod(floor(v / 256.0), 256.0) / 255.0, floor(v / 65536.0) / 255.0, 1.0); }
@@ -129,7 +147,7 @@ void main() {
   oD = vec4(0.0);
   if (uIdMode == 1) { o = encode(vId); oD = packDepth(gl_FragCoord.z); return; }
   vec3 n = vN;
-  vec3 c = uCloth > 0.5 ? texture(uTex, vUv).rgb : vec3(0.93);
+  vec3 c = bandShade(uCloth > 0.5 ? texture(uTex, vUv).rgb : vec3(0.93), vPos);
   float diff = abs(dot(n, uLight));
   o = vec4(c * (0.42 + 0.6 * diff), 1.0);
 }`;
@@ -207,6 +225,10 @@ export class View3D {
   private idx = new Uint32Array(0);
   private h = 1;
   private hasCloth = false;
+  /** band planes for the shader: (n, d) and (half width, draft) per band */
+  private bandPlanes = new Float32Array(4 * MAX_BANDS);
+  private bandWidths = new Float32Array(2 * MAX_BANDS);
+  private nBands = 0;
   private idDirty = true;
   private idCamKey = '';
   style: Style = 'mesh';
@@ -383,6 +405,17 @@ export class View3D {
     this.cam.dist = Math.max(1, r / Math.sin(this.cam.fov / 2) * 1.05);
   }
 
+  /** Bands to shade on the surface: each a plane through p with unit normal n, w wide;
+   *  a draft one (being tied) is tinted instead of darkened. Past MAX_BANDS the rest are not shown. */
+  setBands(bands: { p: Vec3; n: Vec3; w: number; draft?: boolean }[]): void {
+    this.nBands = Math.min(bands.length, MAX_BANDS);
+    for (let i = 0; i < this.nBands; i++) {
+      const { p, n, w, draft } = bands[i];
+      this.bandPlanes.set([n[0], n[1], n[2], -(n[0] * p[0] + n[1] * p[1] + n[2] * p[2])], i * 4);
+      this.bandWidths.set([w / 2, draft ? 1 : 0], i * 2);
+    }
+  }
+
   setTexture(src: HTMLCanvasElement): void {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
@@ -425,6 +458,11 @@ export class View3D {
     gl.uniform3fv(gl.getUniformLocation(prog, 'uEye'), eye);
     gl.uniform1i(gl.getUniformLocation(prog, 'uIdMode'), idMode ? 1 : 0);
     gl.uniform1f(gl.getUniformLocation(prog, 'uCloth'), 1);
+    gl.uniform1i(gl.getUniformLocation(prog, 'uNBands'), idMode ? 0 : this.nBands);
+    if (!idMode && this.nBands) {
+      gl.uniform4fv(gl.getUniformLocation(prog, 'uBands'), this.bandPlanes);
+      gl.uniform2fv(gl.getUniformLocation(prog, 'uBandW'), this.bandWidths);
+    }
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.uniform1i(gl.getUniformLocation(prog, 'uTex'), 0);
