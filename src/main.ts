@@ -565,6 +565,7 @@ function buildSidebar(): void {
         sel.addEventListener('change', () => { exportPx = parseInt(sel.value); try { localStorage.setItem('tiedyer.exportPx', sel.value); } catch { /* ignore */ } });
         return row(el('label', {}, 'image size'), sel);
       })(),
+      slider('split', SPLIT_MIN, SPLIT_MAX, 0.01, () => split, setSplit, (v) => `${Math.round(v * 100)}%`),
       (thickRow = logSlider('layer height cm', 0.01, 1, () => plan.thickness, setThickness, (v) => v.toFixed(2), () => { rebuildGeometry(); touched(); })),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
@@ -883,10 +884,62 @@ flatCanvas.addEventListener('pointerdown', (ev) => {
 });
 flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
 
-// mobile controls drawer
+// Controls panel: docked beside the views on wide screens, where ☰ hides and shows it
+// (remembered); a drawer over the views on narrow ones.
 const appEl = document.getElementById('app')!;
-document.getElementById('menu-btn')!.addEventListener('click', () => appEl.classList.toggle('menu-open'));
+const narrowMq = window.matchMedia('(max-width: 800px)');
+try { if (localStorage.getItem('tiedyer.sideHidden') === '1') appEl.classList.add('side-hidden'); } catch { /* ignore */ }
+document.getElementById('menu-btn')!.addEventListener('click', () => {
+  if (narrowMq.matches) { appEl.classList.toggle('menu-open'); return; }
+  const hidden = appEl.classList.toggle('side-hidden');
+  try { localStorage.setItem('tiedyer.sideHidden', hidden ? '1' : '0'); } catch { /* ignore */ }
+});
 document.getElementById('backdrop')!.addEventListener('click', () => appEl.classList.remove('menu-open'));
+
+// Split between the flat and folded views. The views sit side by side when their area
+// is wider than tall and stack otherwise, decided from the area itself rather than the
+// screen width, so rotating the device or hiding the panel keeps the same fraction.
+const viewsEl = document.getElementById('views')!;
+const flatViewEl = document.getElementById('flat-view')!;
+const foldedViewEl = document.getElementById('folded-view')!;
+const dividerEl = document.getElementById('divider')!;
+const SPLIT_MIN = 0.15, SPLIT_MAX = 0.85;
+/** fraction of the views area given to the flat cloth */
+let split = 0.5;
+try { const v = parseFloat(localStorage.getItem('tiedyer.split') ?? ''); if (v >= SPLIT_MIN && v <= SPLIT_MAX) split = v; } catch { /* ignore */ }
+function setSplit(v: number): void {
+  split = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, v));
+  flatViewEl.style.flexGrow = String(split);
+  foldedViewEl.style.flexGrow = String(1 - split);
+  try { localStorage.setItem('tiedyer.split', split.toFixed(3)); } catch { /* ignore */ }
+  dirty = true;
+}
+setSplit(split);
+new ResizeObserver(() => {
+  const cols = viewsEl.clientWidth < viewsEl.clientHeight;
+  viewsEl.classList.toggle('cols', cols);
+  dividerEl.setAttribute('aria-orientation', cols ? 'horizontal' : 'vertical');
+}).observe(viewsEl);
+let splitDrag: { start: number; total: number } | null = null;
+dividerEl.addEventListener('pointerdown', (ev) => {
+  ev.preventDefault();
+  const cols = viewsEl.classList.contains('cols');
+  const a = flatViewEl.getBoundingClientRect(), b = foldedViewEl.getBoundingClientRect();
+  splitDrag = cols ? { start: a.top, total: a.height + b.height } : { start: a.left, total: a.width + b.width };
+  dividerEl.setPointerCapture(ev.pointerId);
+  dividerEl.classList.add('drag');
+});
+dividerEl.addEventListener('pointermove', (ev) => {
+  if (!splitDrag) return;
+  const pos = viewsEl.classList.contains('cols') ? ev.clientY : ev.clientX;
+  // the pointer sits mid-divider, 4px (half the 8px divider) past the flat view
+  setSplit((pos - splitDrag.start - 4) / splitDrag.total);
+  syncControls();
+});
+const endSplitDrag = (): void => { splitDrag = null; dividerEl.classList.remove('drag'); };
+dividerEl.addEventListener('pointerup', endSplitDrag);
+dividerEl.addEventListener('pointercancel', endSplitDrag);
+dividerEl.addEventListener('dblclick', () => { setSplit(0.5); syncControls(); });
 
 window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;

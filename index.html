@@ -13,12 +13,13 @@
       <div id="backdrop"></div>
       <aside id="side"></aside>
       <main>
-        <div class="views">
-          <section class="view">
+        <div class="views" id="views">
+          <section class="view" id="flat-view">
             <h2>Flat cloth <span class="hint">hover to locate on the bundle</span></h2>
             <canvas id="flat"></canvas>
           </section>
-          <section class="view">
+          <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="Resize views" title="Drag to change the split"></div>
+          <section class="view" id="folded-view">
             <h2>Folded bundle
               <span class="seg"><button id="v2d" class="small on">2D</button><button id="v3d" class="small">3D</button></span>
               <span id="cam3d" class="cam" hidden>
@@ -74,7 +75,8 @@
         <p><b>GLB</b> saves the bundle as a 3D model (glTF binary) with the dye as its texture, for Blender, a web viewer, or AR Quick Look on iOS. Rinse first if you want only fixed dye in the texture.</p>
 
         <h3>Mouse and keys</h3>
-        <p>Drag to squirt or band. Hold still to keep pouring. <kbd>space</kbd> play/pause · <kbd>z</kbd> undo stroke · <kbd>esc</kbd> cancel a fold line · <kbd>?</kbd> this help. On a phone the controls are behind the ☰ button.</p>
+        <p>Drag to squirt or band. Hold still to keep pouring. <kbd>space</kbd> play/pause · <kbd>z</kbd> undo stroke · <kbd>esc</kbd> cancel a fold line · <kbd>?</kbd> this help. The ☰ button hides and shows the controls (on a phone they slide in over the views).</p>
+        <p>Drag the bar between the two views, or use <b>split</b> under View, to give one of them more room; double-click the bar to even them out. The views sit side by side when there is more width than height and stack otherwise, and keep the same split when you rotate the device.</p>
 
         <p class="note">Full write-up: docs/dye-model.md in the source repository.</p>
       </div>

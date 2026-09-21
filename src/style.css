@@ -12,14 +12,31 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; }
-#app { display: flex; height: 100vh; height: 100dvh; }
+#app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 #side {
   width: 300px; flex: 0 0 300px; overflow-y: auto; padding: 10px 12px 24px;
   background: var(--panel); border-right: 1px solid var(--line);
+  transition: margin-left 0.2s ease;
 }
+/* Docked panel (wide screens): the ☰ button hides it and the views take the room. */
+#app.side-hidden #side { margin-left: -300px; }
+#side h1 { padding-left: 40px; }
+#app.side-hidden .view:first-child h2 { padding-left: 40px; }
 main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.views { flex: 1; display: flex; gap: 8px; padding: 8px; min-height: 0; }
-.view { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* The views sit side by side when their area is wider than tall and stack otherwise
+   (main.ts sets .cols from the area's own shape, not the screen width), and the
+   split fraction is the same either way. */
+.views { flex: 1; display: flex; padding: 8px; min-height: 0; min-width: 0; }
+.views.cols { flex-direction: column; }
+.divider { flex: 0 0 8px; position: relative; cursor: col-resize; touch-action: none; }
+.views.cols .divider { cursor: row-resize; }
+/* bigger hit area than it looks, for fingers */
+.divider::before { content: ''; position: absolute; inset: 0 -6px; z-index: 5; }
+.views.cols .divider::before { inset: -6px 0; }
+.divider::after { content: ''; position: absolute; left: 3px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 1px; background: var(--line); }
+.views.cols .divider::after { left: 50%; top: 3px; width: 36px; height: 2px; margin: 0 0 0 -18px; }
+.divider:hover::after, .divider.drag::after { background: var(--accent); }
+.view { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .view h2 { display: flex; align-items: center; margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; min-height: 22px; }
 .chip { margin-left: 8px; padding: 0 8px; line-height: 18px; border-radius: 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #111; background: var(--accent); white-space: nowrap; }
 .chip.mode-dye { background: #e0007f; color: #fff; }
@@ -84,13 +101,13 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 .native #help .help-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 
 /* Mobile: controls slide in over the views, views stack. */
-#menu-btn, #backdrop { display: none; }
+#menu-btn {
+  position: fixed; top: 6px; left: 6px; z-index: 30;
+  width: 36px; height: 32px; padding: 0; font-size: 18px; line-height: 1;
+  background: rgba(38,38,44,0.9);
+}
+#backdrop { display: none; }
 @media (max-width: 800px) {
-  #menu-btn {
-    display: block; position: fixed; top: 6px; left: 6px; z-index: 30;
-    width: 36px; height: 32px; padding: 0; font-size: 18px; line-height: 1;
-    background: rgba(38,38,44,0.9);
-  }
   #backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,0.45); }
   #side {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 25;
@@ -99,10 +116,10 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
     padding-top: 44px;
   }
   #app.menu-open #side { transform: none; }
+  #app.side-hidden #side { margin-left: 0; }
+  #side h1 { padding-left: 0; }
   #app.menu-open #backdrop { display: block; }
-  .views { flex-direction: column; padding-left: 8px; }
-  .view h2 { padding-left: 40px; }
-  .view + .view h2 { padding-left: 0; }
+  .view:first-child h2 { padding-left: 40px; }
   .view h2 .hint { display: none; }
   .view h2 .cam button, .view h2 .seg button { line-height: 24px; padding: 0 9px; }
   #status { font-size: 11px; }
@@ -112,7 +129,9 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 .native main { padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right); }
 .native #side { padding-top: calc(10px + env(safe-area-inset-top)); padding-left: calc(12px + env(safe-area-inset-left)); padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .native #status { height: calc(2.6em + env(safe-area-inset-bottom)); padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+.native #menu-btn { top: calc(6px + env(safe-area-inset-top)); left: calc(6px + env(safe-area-inset-left)); }
+.native #app.side-hidden main { padding-left: env(safe-area-inset-left); }
 @media (max-width: 800px) {
-  .native #menu-btn { top: calc(6px + env(safe-area-inset-top)); left: calc(6px + env(safe-area-inset-left)); }
+  .native main { padding-left: env(safe-area-inset-left); }
   .native #side { padding-top: calc(44px + env(safe-area-inset-top)); }
 }
