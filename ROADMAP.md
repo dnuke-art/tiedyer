@@ -31,6 +31,24 @@ waits here.
   home swipe, now that the views run to the edge. If that bites, defer the system
   gesture there (`preferredScreenEdgesDeferringSystemGestures` in the iOS shell).
 
+**Control panel and modes**
+
+- Fold becomes a fourth choice in the mode switch on the bundle view (Dye / Band /
+  Fold / Orbit), replacing the panel's "Draw fold line" button: tap a point, set the
+  angle, tap the side that moves, in 2D and 3D, the same as now.
+- The zigzag row's "Fold" button is easy to mistake for a fold-in-half: it applies
+  zigzag triangle folds along the strip (axis and triangle shape from the two menus
+  beside it). Rename it ("Zigzag") and look at the Shape section as a whole. Its
+  "Fold / Twist" pair picks the kind of shape, so there are two different "Fold"
+  buttons in one section.
+- A time slider on the bundle view in place of Play: scrub along the diffusion
+  timeline instead of running it. Needs a decision on how: store snapshots as the
+  batch runs (memory: 240² texels × free, fixed and bleach per step kept), or re-run
+  from the last stroke up to the slider's time (the solver is deterministic, and on
+  the GPU a few hundred steps take a fraction of a second, so this may be enough).
+  Strokes added partway along the timeline need a rule too: the usual choice is that
+  they cut off the future and the batch continues from there.
+
 **Bands**
 
 - Old round bands (from 2D plans before 2026-09-21) are not drawn in 3D, and old
