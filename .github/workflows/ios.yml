@@ -10,14 +10,7 @@ on:
   push:
     tags:
       - 'ios-v*'
-  # manual run; `version` sets the marketing version, e.g. to match the version record
-  # App Store Connect has open (a build is only offered to a version with its number)
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Marketing version (x.y.z); empty = from the tag, else 0.1'
-        required: false
-        default: ''
 
 jobs:
   build-and-upload:
@@ -56,9 +49,7 @@ jobs:
         id: ver
         run: |
           REF="${{ github.ref_name }}"
-          if [[ -n "${{ inputs.version }}" ]]; then
-            VERSION="${{ inputs.version }}"
-          elif [[ "$REF" == ios-v* ]]; then
+          if [[ "$REF" == ios-v* ]]; then
             VERSION="${REF#ios-v}"
           else
             VERSION="0.1"
