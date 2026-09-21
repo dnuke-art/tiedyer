@@ -21,21 +21,24 @@
           <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="Resize views" title="Drag to change the split"></div>
           <section class="view" id="folded-view">
             <h2>Folded bundle
-              <span class="seg"><button id="v2d" class="small on">2D</button><button id="v3d" class="small">3D</button></span>
-              <span id="cam3d" class="cam" hidden>
-                <button id="paintBtn" class="small" title="on: drag paints with the Dye/Band tool · off: drag orbits (right-drag always orbits; two fingers pan and pinch-zoom)">paint</button><button id="zoomIn" class="small" title="zoom in">+</button><button id="zoomOut" class="small" title="zoom out">−</button><button id="fitView" class="small" title="fit the bundle">fit</button>
-              </span>
-              <span id="mode-chip" class="chip"></span>
               <span class="hint" id="tool-hint"></span>
               <a class="gh" href="https://github.com/dnuke-art/tiedyer" target="_blank" rel="noopener" title="Source on GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
             </h2>
             <div class="stack" id="stack">
               <canvas id="folded3d"></canvas>
               <canvas id="folded"></canvas>
+              <!-- heads-up corner: view and camera controls, the mode pill, then the readout -->
+              <div class="hud" id="hud">
+                <div class="seg" role="group" aria-label="Bundle view"><button id="v2d" class="small on">2D</button><button id="v3d" class="small">3D</button></div>
+                <div id="cam3d" class="cam" role="group" aria-label="3D camera" hidden>
+                  <button id="paintBtn" class="small" title="on: drag paints with the Dye/Band tool · off: drag orbits (right-drag always orbits; two fingers pan and pinch-zoom)">paint</button><button id="zoomIn" class="small" title="zoom in">+</button><button id="zoomOut" class="small" title="zoom out">−</button><button id="fitView" class="small" title="fit the bundle">fit</button>
+                </div>
+                <span id="mode-chip" class="chip"></span>
+                <div id="status"></div>
+              </div>
             </div>
           </section>
         </div>
-        <div id="status"></div>
       </main>
     </div>
     <dialog id="help" aria-labelledby="help-title">
@@ -52,7 +55,7 @@
         <p>Use the Shape section to fold: accordion pleats, zigzag triangles, diagonals, or draw your own fold line (click a point, move to set the angle, click, then click the side that moves; the creases it would make are previewed on the flat cloth as you go). Twist mode pinches the centre and winds the cloth into a spiral instead. Bands and clamps squeeze the layers so dye cannot get in.</p>
 
         <h3>Squirting is wicking</h3>
-        <p>A squirt pours liquid onto the bundle and it wicks through the layers right away, top layer first, then the next, until the liquid is used up. <b>Soak</b> is how much liquid one squirt puts out, in layers: soak 1 fills the top layer under the nozzle, soak 10 reaches ten layers down. The dye goes wherever the liquid goes. This decides the reach of every squirt before any diffusion happens, which is also how it works with a real squeeze bottle. In a thick stack, <b>sideways wick</b> is the lever for depth: every layer's neighbours take a share on the way down, so turn it down to send a squirt straight through, and watch the status line, which reports how many layers the last squirt reached.</p>
+        <p>A squirt pours liquid onto the bundle and it wicks through the layers right away, top layer first, then the next, until the liquid is used up. <b>Soak</b> is how much liquid one squirt puts out, in layers: soak 1 fills the top layer under the nozzle, soak 10 reaches ten layers down. The dye goes wherever the liquid goes. This decides the reach of every squirt before any diffusion happens, which is also how it works with a real squeeze bottle. In a thick stack, <b>sideways wick</b> is the lever for depth: every layer's neighbours take a share on the way down, so turn it down to send a squirt straight through, and watch the readout in the corner of the bundle view, which reports how many layers the last squirt reached.</p>
 
         <h3>Working a spot</h3>
         <ul>

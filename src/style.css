@@ -43,19 +43,26 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .chip.mode-band { background: #d7d5cf; color: #111; }
 .chip.mode-orbit, .chip.mode-inspect { background: #4c6fff; color: #fff; }
 .view h2 .hint { font-weight: 400; margin-left: 8px; color: #6f6d66; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view h2 .seg, .view h2 .cam { display: inline-flex; margin-left: 8px; }
-.view h2 .cam[hidden] { display: none; }
-.view h2 .seg button, .view h2 .cam button { padding: 0 7px; font-size: 11px; line-height: 18px; border-radius: 0; }
-.view h2 .seg button:first-child, .view h2 .cam button:first-child { border-radius: 4px 0 0 4px; }
-.view h2 .seg button:last-child, .view h2 .cam button:last-child { border-radius: 0 4px 4px 0; }
-.view h2 .cam button + button, .view h2 .seg button + button { margin-left: -1px; }
+/* Heads-up corner of the bundle view: view and camera buttons stacked, the mode pill,
+   then the readout. Only the buttons take pointer events, so painting reaches the
+   canvas everywhere else. */
+.hud { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: min(240px, calc(100% - 12px)); pointer-events: none; }
+.hud .seg, .hud .cam { display: flex; flex-direction: column; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,0.35); border-radius: 4px; }
+.hud .cam[hidden] { display: none; }
+.hud .seg button, .hud .cam button { width: 44px; padding: 0; font-size: 11px; line-height: 22px; border-radius: 0; background: rgba(51,51,59,0.92); }
+.hud .seg button.on, .hud .cam button.on { background: var(--accent); }
+.hud .seg button:first-child, .hud .cam button:first-child { border-radius: 4px 4px 0 0; }
+.hud .seg button:last-child, .hud .cam button:last-child { border-radius: 0 0 4px 4px; }
+.hud .cam button + button, .hud .seg button + button { margin-top: -1px; }
 /* neighbours overlap by 1px to share a border; lift the hovered/active one so its outline is not clipped */
-.view h2 .cam button:hover, .view h2 .seg button:hover, .view h2 .cam button.on, .view h2 .seg button.on { position: relative; z-index: 1; }
+.hud .cam button:hover, .hud .seg button:hover, .hud .cam button.on, .hud .seg button.on { position: relative; z-index: 1; }
+.hud .chip { margin: 0; }
+#status { padding: 4px 7px; border-radius: 4px; background: rgba(27,27,31,0.72); color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
+#status:empty { display: none; }
 .stack { position: relative; flex: 1; min-height: 0; }
 .stack canvas { position: absolute; inset: 0; }
 .stack.three #folded { background: transparent; }
 canvas { flex: 1; width: 100%; height: 100%; min-height: 0; background: #2f2f36; border-radius: 4px; display: block; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; -webkit-touch-callout: none; }
-#status { flex: 0 0 auto; height: 2.6em; line-height: 1.3em; padding: 2px 12px 6px; color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; white-space: pre; overflow: hidden; }
 
 a.gh { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-weight: 400; text-decoration: none; }
 a.gh:hover { color: var(--accent); }
@@ -132,15 +139,14 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 /* Phone-sized in either orientation. */
 @media (max-width: 800px), (max-height: 500px) {
   .view h2 .hint { display: none; }
-  .view h2 .cam button, .view h2 .seg button { line-height: 24px; padding: 0 9px; }
-  /* wrap instead of running off the edge; fixed at three lines so the views do not jump as it changes */
-  #status { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; height: 3.9em; }
+  .hud .seg button, .hud .cam button { line-height: 30px; }
+  .hud { max-width: min(200px, calc(100% - 12px)); }
+  #status { font-size: 10px; }
 }
 
 /* Native shell (Capacitor): keep the UI out of the notch / home indicator. */
-.native main { padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right); }
+.native main { padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); }
 .native #side { padding-top: calc(10px + env(safe-area-inset-top)); padding-left: calc(12px + env(safe-area-inset-left)); padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
-.native #status { height: calc(2.6em + env(safe-area-inset-bottom)); padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 .native #menu-btn { top: calc(6px + env(safe-area-inset-top)); left: calc(6px + env(safe-area-inset-left)); }
 .native #app.side-hidden main { padding-left: env(safe-area-inset-left); }
 /* docked, the panel grows by the left safe area (the Dynamic Island on a phone on its
@@ -152,7 +158,4 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 @media (max-width: 800px) {
   .native main { padding-left: env(safe-area-inset-left); }
   .native #side { padding-top: calc(44px + env(safe-area-inset-top)); }
-}
-@media (max-width: 800px), (max-height: 500px) {
-  .native #status { height: calc(3.9em + env(safe-area-inset-bottom)); }
 }

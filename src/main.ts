@@ -642,13 +642,13 @@ function loadPlanFile(): void {
 // ---------------------------------------------------------------------------
 // Strokes and bindings
 
-/** how many layers the last squirt reached, for the status line */
+/** how many layers the last squirt reached, for the readout */
 let lastReach = '';
 function noteReach(): void {
   if (!isFold(bundle)) { lastReach = ''; return; }
   const seen = new Set<number>(), t = sim.touched, d = bundle.depthTop;
   for (let i = 0; i < t.length; i++) if (t[i]) seen.add(d[i]);
-  lastReach = seen.size ? ` · last squirt reached ${seen.size} of ${bundle.maxLayers} layers` : '';
+  lastReach = seen.size ? `last squirt reached ${seen.size} of ${bundle.maxLayers} layers` : '';
 }
 
 function addStroke(s: Stroke, holdable = false): void {
@@ -995,7 +995,7 @@ function frame(): void {
     dirty = false;
     try { renderOnce(); } catch (e) {
       console.error('render failed', e);
-      statusEl.textContent = `render error: ${(e as Error).message}\n`;
+      statusEl.textContent = `render error: ${(e as Error).message}`;
     }
   }
   requestAnimationFrame(frame);
@@ -1291,11 +1291,13 @@ function renderOnce(): void {
     renderer.drawFolded(sim, faces, plan.bands, view, foldedMarkers, overlay);
   }
 
+  // the readout in the corner of the bundle view: steady metrics first, then the lines
+  // that come and go (squirt depth, pouring, hover) so the top does not jump
   const shape = plan.mode === 'twist'
-    ? (twistStatus ? `twisting: ${twistStatus}` : `twist ${plan.twist.turns} turns · ${sim.N}×${sim.M} particles`)
-    : `${faces.length} faces · up to ${isFold(bundle) ? bundle.maxLayers : 0} layers · ${sim.N}×${sim.M} texels`;
-  const pouring = hold && dragging ? ` · pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
-  statusEl.textContent = `${shape} · ${gpu ? 'GPU' : 'CPU'} solver · t=${sim.t}${lastReach}${pouring} · build ${__BUILD__}` + '\n' + hoverInfo;
+    ? (twistStatus ? [`twisting: ${twistStatus}`] : [`twist ${plan.twist.turns} turns`, `${sim.N}×${sim.M} particles`])
+    : [`${faces.length} faces · ${isFold(bundle) ? bundle.maxLayers : 0} layers`, `${sim.N}×${sim.M} texels`];
+  const pouring = hold && dragging ? `pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
+  statusEl.textContent = [...shape, `${gpu ? 'GPU' : 'CPU'} · t=${sim.t} · ${__BUILD__}`, lastReach, pouring, hoverInfo].filter(Boolean).join('\n');
 }
 
 // Debug / scripting handle (also handy for automated tests).

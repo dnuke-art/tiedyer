@@ -54,8 +54,8 @@ drips off.
 Sideways wick is what decides depth in a thick stack: every layer's neighbours
 take their share on the way down, so at the default 0.35 a squirt stalls well
 short of the bottom of a tall stack however much you pour, while at 0 the same
-soak goes straight through. The status line shows how many layers the last
-squirt reached.
+soak goes straight through. The readout in the corner of the bundle view shows
+how many layers the last squirt reached.
 
 Because a texel can be filled from any neighbour with excess, not only from the
 one that reached it first, fronts have no dry seams where the set of feeding
@@ -92,8 +92,8 @@ so the wetness is always exactly what the stored strokes produce.
 - **Holding still** keeps one squirt pouring: its soak grows by **hold flow** ×
   soak every second (default: doubles each second, up to 400 layers). The
   squirt is re-applied from scratch each frame with the larger volume, so the
-  front moves down in real time and nothing stacks. The status line shows the
-  soak as it grows. Set hold flow to *off* for fully stamp-based painting.
+  front moves down in real time and nothing stacks. The readout in the corner
+  of the bundle view shows the soak as it grows. Set hold flow to *off* for fully stamp-based painting.
 - What is saved is the final squirt, with its final soak. Load, Rewind and
   fold changes replay it exactly, so nothing about the result depends on time.
 
@@ -143,7 +143,7 @@ texel blocks the front entirely.
 
 | I want… | Use |
 |---|---|
-| A squirt to reach more layers at once | Sideways wick down first (it is the main lever: on the 72-layer kikko a soak-60 squirt reaches 42 layers at 0.35 and all 72 at 0), then soak up, or hold the button still. The status line reports how many layers the last squirt reached |
+| A squirt to reach more layers at once | Sideways wick down first (it is the main lever: on the 72-layer kikko a soak-60 squirt reaches 42 layers at 0.35 and all 72 at 0), then soak up, or hold the button still. The readout in the corner of the bundle view reports how many layers the last squirt reached |
 | Dye on every layer regardless | Paint the edges of the stack in 3D, or dip |
 | A darker, richer area | Go over it again; raise build-up to allow more |
 | To stop a colour from ever going black | Lower build-up (0 = one squirt's worth, full stop) |
