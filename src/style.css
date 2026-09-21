@@ -50,17 +50,16 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .hud .seg button + button { margin-top: -1px; }
 /* neighbours overlap by 1px to share a border; lift the hovered/active one so its outline is not clipped */
 .hud .seg button:hover, .hud .seg button.on { position: relative; z-index: 1; }
-/* the mode switch: set apart from the 2D/3D switch, rounded, and lit in the mode's own
-   colour (dye magenta, band the colour of a rubber band, look blue) */
-.hud .modes { pointer-events: auto; margin-top: 8px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
-.hud .modes button { width: 60px; padding: 0; line-height: 26px; border-radius: 0; font-size: 12px; font-weight: 600; background: rgba(27,27,31,0.82); color: var(--ink); }
+/* the mode switch: styled like the 2D/3D switch above it, with a gap between the two */
+.hud .modes { pointer-events: auto; margin-top: 8px; display: flex; flex-direction: column; box-shadow: 0 1px 4px rgba(0,0,0,0.35); border-radius: 4px; }
+.hud .modes button { padding: 0; font-size: 11px; line-height: 22px; border-radius: 0; background: rgba(51,51,59,0.92); }
+.hud .modes button.on { background: var(--accent); }
+.hud .modes button:first-child { border-radius: 4px 4px 0 0; }
+.hud .modes button:last-child { border-radius: 0 0 4px 4px; }
 .hud .modes button + button { margin-top: -1px; }
-.hud .modes button:first-child { border-radius: 14px 14px 0 0; }
-.hud .modes button:last-child { border-radius: 0 0 14px 14px; }
 .hud .modes button:hover, .hud .modes button.on { position: relative; z-index: 1; }
-.hud .modes .tool-dye.on { background: #e0007f; border-color: #e0007f; color: #fff; }
-.hud .modes .tool-band.on { background: #d7d5cf; border-color: #d7d5cf; color: #111; }
-.hud .modes .tool-look.on { background: #4c6fff; border-color: #4c6fff; color: #fff; }
+/* both switches one width, wide enough for "Inspect" */
+.hud .seg button, .hud .modes button { width: 52px; }
 #status { position: absolute; right: 6px; bottom: 6px; z-index: 2; max-width: min(240px, calc(100% - 12px)); pointer-events: none; padding: 4px 7px; border-radius: 4px; background: rgba(27,27,31,0.72); color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
 #status:empty { display: none; }
 .stack { position: relative; flex: 1; min-height: 0; }
@@ -144,7 +143,8 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
   .views { padding: 0; }
   canvas { border-radius: 0; }
   .hud .seg button { line-height: 30px; }
-  .hud .modes button { line-height: 32px; width: 64px; }
+  .hud .modes button { line-height: 30px; }
+  .hud .seg button, .hud .modes button { width: 56px; }
   #status { font-size: 10px; max-width: min(200px, calc(100% - 12px)); }
 }
 
