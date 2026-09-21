@@ -93,13 +93,13 @@ function setThree(on: boolean): void {
   last3dKey = '';
 }
 v2dBtn.addEventListener('click', () => setThree(false));
-v3dBtn.addEventListener('click', () => setThree(true));
+// tapping 3D while already in 3D fits the bundle back in view
+v3dBtn.addEventListener('click', () => { if (view.three) { view3d?.frame(); dirty = true; } else setThree(true); });
 // 3D "paint" toggle: on, a plain drag paints with the last Dye/Band tool and never orbits;
 // off, a plain drag orbits. Right/middle drag, modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
 const paintBtn = document.getElementById('paintBtn') as HTMLButtonElement;
 const isPaint = (t: Tool) => t === 'dye' || t === 'band';
 paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? 'orbit' : paintTool));
-document.getElementById('fitView')!.addEventListener('click', () => { view3d?.frame(); dirty = true; });
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
