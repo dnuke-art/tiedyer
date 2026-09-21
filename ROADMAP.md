@@ -5,7 +5,7 @@ the engine underneath actually is, and where that could go.
 
 ## Parked until the App Store submission is approved
 
-Started 2026-09-21, with build 0.1.7 in TestFlight and the resubmission being prepared.
+Started 2026-09-21, with build 0.1.8 in TestFlight and the resubmission being prepared.
 Until Apple approves it, the app only gets what App Review asks for. Everything else
 waits here.
 
