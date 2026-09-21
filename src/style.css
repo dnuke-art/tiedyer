@@ -24,19 +24,23 @@ body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 #app.menu-open #side { transform: none; box-shadow: 4px 0 16px rgba(0,0,0,0.4); }
 /* the title row sits level with the ☰ button (44px tall, 6px from the top) */
 #side h1 { padding-left: 54px; min-height: 44px; margin-top: -4px; align-items: center; }
-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-/* The views sit side by side when their area is wider than tall and stack otherwise
-   (main.ts sets .cols from the area's own shape, not the screen width), and the
-   split fraction is the same either way. */
+/* main is a size container so the views' arrangement can follow its shape in CSS */
+main { flex: 1; display: flex; flex-direction: column; min-width: 0; container-type: size; }
+/* The views sit side by side when their area is wider than tall and stack otherwise,
+   decided by the area's own shape (a container query), not the screen width. Being
+   CSS, it holds from the first paint; main.ts reads the result for the divider drag.
+   The split fraction is the same either way. */
 .views { flex: 1; display: flex; padding: 8px; min-height: 0; min-width: 0; }
-.views.cols { flex-direction: column; }
 .divider { flex: 0 0 8px; position: relative; cursor: col-resize; touch-action: none; }
-.views.cols .divider { cursor: row-resize; }
 /* bigger hit area than it looks, for fingers */
 .divider::before { content: ''; position: absolute; inset: 0 -6px; z-index: 5; }
-.views.cols .divider::before { inset: -6px 0; }
 .divider::after { content: ''; position: absolute; left: 3px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 1px; background: var(--line); }
-.views.cols .divider::after { left: 50%; top: 3px; width: 36px; height: 2px; margin: 0 0 0 -18px; }
+@container (max-aspect-ratio: 1/1) {
+  .views { flex-direction: column; }
+  .divider { cursor: row-resize; }
+  .divider::before { inset: -6px 0; }
+  .divider::after { left: 50%; top: 3px; width: 36px; height: 2px; margin: 0 0 0 -18px; }
+}
 .divider:hover::after, .divider.drag::after { background: var(--accent); }
 .view { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 /* Heads-up corner of the bundle view: view and camera buttons stacked, then the mode

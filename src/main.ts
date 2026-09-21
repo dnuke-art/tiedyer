@@ -611,7 +611,7 @@ function buildSidebar(): void {
   };
   sideEl.replaceChildren(
     // title row, level with ☰: the app name, then the GitHub link and Help at the right edge
-    el('h1', {}, 'tiedyer',
+    el('h1', {}, 'Tie Dyer',
       ...(ghLink ? [ghLink] : []),
       el('button', { class: 'help-btn', onclick: openHelp, title: 'How Tie Dyer works (?)' }, 'Help')),
     row(
@@ -1004,7 +1004,8 @@ function setSplit(v: number): void {
 }
 setSplit(split);
 new ResizeObserver(() => {
-  const cols = viewsEl.clientWidth < viewsEl.clientHeight;
+  // the arrangement itself is CSS (a container query on main); keep a class for the drag code
+  const cols = getComputedStyle(viewsEl).flexDirection === 'column';
   viewsEl.classList.toggle('cols', cols);
   dividerEl.setAttribute('aria-orientation', cols ? 'horizontal' : 'vertical');
 }).observe(viewsEl);
