@@ -67,8 +67,10 @@ later allow 64. The simulator's Metal device evidently applies the lower
 limit, or something like it: 32 bytes completes, 48 does not. Current iPhones
 (A-series from A11) should accept 48 bytes, so real devices probably ran the
 single-pass solver all along. Pre-A11 devices would have hit the same
-fallback. We have **not checked this on a physical device**. The readout
-makes it a glance: see "Checking a device" below.
+fallback. **Confirmed on one device:** an iPhone 16 (A18) running TestFlight
+0.1.5, which had only the single-pass solver, showed `GPU` in the readout, so it
+accepts all three RGBA32F targets. Pre-A11 hardware is still unchecked; the
+readout makes that a glance (see "Checking a device" below).
 
 ## The fix: split the step when the wide target is refused
 
@@ -118,9 +120,9 @@ The readout's solver line says which path is running:
 
 ## Open items
 
-- **Confirm on hardware.** Read the solver line on a current iPhone and, if
-  one is to hand, a pre-A11 device (iPhone 7 / 8 class). The expectation is
-  `GPU` and `GPU (2-pass)` respectively.
+- **Confirm on older hardware.** An iPhone 16 shows `GPU` (single pass). If a
+  pre-A11 device (iPhone 7 / 8 class) is to hand, read its solver line; the
+  expectation is `GPU (2-pass)`.
 - **If split mode needs to be faster** there are two cheaper options than two
   full draws. Bleach is one channel, so it could ride in a spare channel of
   another target when fewer than four dyes are in use. Or free and fixed dye
