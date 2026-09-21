@@ -882,16 +882,9 @@ flatCanvas.addEventListener('pointerdown', (ev) => {
 });
 flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
 
-// Controls panel: docked beside the views on wide screens, where ☰ hides and shows it
-// (remembered), a phone on its side included; a drawer over the views on narrow ones.
+// Controls panel: a drawer over the views at every size; ☰ slides it in and out.
 const appEl = document.getElementById('app')!;
-const narrowMq = window.matchMedia('(max-width: 800px)'); // keep in step with style.css
-try { if (localStorage.getItem('tiedyer.sideHidden') === '1') appEl.classList.add('side-hidden'); } catch { /* ignore */ }
-document.getElementById('menu-btn')!.addEventListener('click', () => {
-  if (narrowMq.matches) { appEl.classList.toggle('menu-open'); return; }
-  const hidden = appEl.classList.toggle('side-hidden');
-  try { localStorage.setItem('tiedyer.sideHidden', hidden ? '1' : '0'); } catch { /* ignore */ }
-});
+document.getElementById('menu-btn')!.addEventListener('click', () => appEl.classList.toggle('menu-open'));
 document.getElementById('backdrop')!.addEventListener('click', () => appEl.classList.remove('menu-open'));
 
 // Split between the flat and folded views. The views sit side by side when their area
