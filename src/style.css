@@ -107,7 +107,7 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
   background: rgba(38,38,44,0.9);
 }
 #backdrop { display: none; }
-@media (max-width: 800px) {
+@media (max-width: 800px), (max-height: 500px) {
   #backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,0.45); }
   #side {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 25;
@@ -122,7 +122,8 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
   .view:first-child h2 { padding-left: 40px; }
   .view h2 .hint { display: none; }
   .view h2 .cam button, .view h2 .seg button { line-height: 24px; padding: 0 9px; }
-  #status { font-size: 11px; }
+  /* wrap instead of running off the edge; fixed at three lines so the views do not jump as it changes */
+  #status { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; height: 3.9em; }
 }
 
 /* Native shell (Capacitor): keep the UI out of the notch / home indicator. */
@@ -131,7 +132,8 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 .native #status { height: calc(2.6em + env(safe-area-inset-bottom)); padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
 .native #menu-btn { top: calc(6px + env(safe-area-inset-top)); left: calc(6px + env(safe-area-inset-left)); }
 .native #app.side-hidden main { padding-left: env(safe-area-inset-left); }
-@media (max-width: 800px) {
+@media (max-width: 800px), (max-height: 500px) {
   .native main { padding-left: env(safe-area-inset-left); }
   .native #side { padding-top: calc(44px + env(safe-area-inset-top)); }
+  .native #status { height: calc(3.9em + env(safe-area-inset-bottom)); }
 }

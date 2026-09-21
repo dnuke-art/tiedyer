@@ -885,9 +885,9 @@ flatCanvas.addEventListener('pointerdown', (ev) => {
 flatCanvas.addEventListener('pointerleave', () => { hoverFlat = null; });
 
 // Controls panel: docked beside the views on wide screens, where ☰ hides and shows it
-// (remembered); a drawer over the views on narrow ones.
+// (remembered); a drawer over the views on narrow or short ones (a phone either way up).
 const appEl = document.getElementById('app')!;
-const narrowMq = window.matchMedia('(max-width: 800px)');
+const narrowMq = window.matchMedia('(max-width: 800px), (max-height: 500px)'); // keep in step with style.css
 try { if (localStorage.getItem('tiedyer.sideHidden') === '1') appEl.classList.add('side-hidden'); } catch { /* ignore */ }
 document.getElementById('menu-btn')!.addEventListener('click', () => {
   if (narrowMq.matches) { appEl.classList.toggle('menu-open'); return; }
