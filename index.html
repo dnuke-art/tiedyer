@@ -23,13 +23,11 @@
             <div class="stack" id="stack">
               <canvas id="folded3d"></canvas>
               <canvas id="folded"></canvas>
-              <!-- heads-up corner: view and camera controls, then the mode pill; the readout sits bottom right -->
+              <!-- heads-up corner: the 2D/3D switch, then the paint toggle; the readout sits bottom right -->
               <div class="hud" id="hud">
                 <div class="seg" role="group" aria-label="Bundle view"><button id="v2d" class="small on">2D</button><button id="v3d" class="small" title="3D view · tap again to fit the bundle">3D</button></div>
-                <div id="cam3d" class="cam" role="group" aria-label="3D camera" hidden>
-                  <button id="paintBtn" class="small" title="on: drag paints with the Dye/Band tool · off: drag orbits (right-drag always orbits; two fingers pan and pinch-zoom)">paint</button>
-                </div>
-                <span id="mode-chip" class="chip"></span>
+                <!-- what a drag does: on, it paints with the Dye or Band tool; off, it orbits (3D) or inspects (2D) -->
+                <button id="paintToggle" class="paint-toggle" aria-pressed="true">Dye</button>
               </div>
               <div id="status"></div>
             </div>
@@ -67,7 +65,7 @@
         <p>The <b>BL</b> swatch squirts bleach instead of dye. It wicks and spreads like dye but removes colour wherever it reaches, fixed or not, and fades as it works (<b>bleach power</b>, <b>bleach fade</b>). Pick a <b>cloth</b> colour to start from a solid shirt and discharge a pattern out of it. Free bleach is tinted pale blue so you can see it on white cloth.</p>
 
         <h3>3D</h3>
-        <p>Switch the bundle to 3D to orbit it and squirt from any side, including the edges of a stack. <b>Paint</b> on: a drag squirts or bands. Paint off: a drag orbits. Right-drag always orbits; two fingers pan, and pinch zooms. Lost the bundle? Tap <b>3D</b> again to fit it back in view.</p>
+        <p>Switch the bundle to 3D to orbit it and squirt from any side, including the edges of a stack. The <b>Dye</b> button in the corner (<b>Band</b> when the band tool is chosen) sets what a drag does: on, it squirts or bands; off, it orbits. In 2D, off means a drag inspects the layers instead. Right-drag always orbits; two fingers pan, and pinch zooms. Lost the bundle? Tap <b>3D</b> again to fit it back in view.</p>
         <p>Folds work in 3D too: with <b>Draw fold line</b> on, tap the bundle (or the table around it) for the two points and the side, and drag to orbit in between. The crease is always a line on the table, shown as a plane cutting through the stack, with the part that will fold over tinted.</p>
         <p><b>Layer height</b> (View section) sets how thick each layer is drawn, from 0.1 mm to 1 cm. Tall stacks from many folds can be squashed flat to see the whole shape, or stretched to paint the edges. It is saved with the plan, since it also sets how much of each layer's edge a side squirt can reach.</p>
         <p><b>Image (PNG)</b> saves the unfolded cloth as a PNG at the size chosen under Export (1024, 2048 or 4096 px on the long side), with creases if they are shown. The detail in it comes from the <b>resolution</b> setting under Cloth: 240 texels is a 2.5 mm texel on a 60 cm cloth, 800 is 0.75 mm. Set the resolution before dyeing; changing it later replays the strokes on the new grid.</p>

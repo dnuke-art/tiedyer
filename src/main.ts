@@ -77,12 +77,10 @@ const view: ViewOpts & { three: boolean } = { fixedOnly: false, strength: 1.2, s
 try { view.three = localStorage.getItem('tiedyer.view3d') === '1'; } catch { /* ignore */ }
 const v2dBtn = document.getElementById('v2d') as HTMLButtonElement;
 const v3dBtn = document.getElementById('v3d') as HTMLButtonElement;
-const cam3dEl = document.getElementById('cam3d')!;
 function setThree(on: boolean): void {
   view.three = on && !!view3d;
   v2dBtn.classList.toggle('on', !view.three);
   v3dBtn.classList.toggle('on', view.three);
-  cam3dEl.hidden = !view.three;
   try { localStorage.setItem('tiedyer.view3d', view.three ? '1' : '0'); } catch { /* ignore */ }
   if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
   if (view.three && (tool === 'dye' || tool === 'band')) setTool('orbit');
@@ -95,11 +93,12 @@ function setThree(on: boolean): void {
 v2dBtn.addEventListener('click', () => setThree(false));
 // tapping 3D while already in 3D fits the bundle back in view
 v3dBtn.addEventListener('click', () => { if (view.three) { view3d?.frame(); dirty = true; } else setThree(true); });
-// 3D "paint" toggle: on, a plain drag paints with the last Dye/Band tool and never orbits;
-// off, a plain drag orbits. Right/middle drag, modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
-const paintBtn = document.getElementById('paintBtn') as HTMLButtonElement;
+// Paint toggle, labelled with the last Dye/Band tool: on, a plain drag paints with it and
+// never orbits; off, a plain drag orbits in 3D and inspects in 2D. Right/middle drag,
+// modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
+const paintBtn = document.getElementById('paintToggle') as HTMLButtonElement;
 const isPaint = (t: Tool) => t === 'dye' || t === 'band';
-paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? 'orbit' : paintTool));
+paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? (is3d() ? 'orbit' : 'inspect') : paintTool));
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
@@ -345,7 +344,7 @@ const HINTS: Record<Tool, string> = {
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
-  orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · turn on paint to dye or band',
+  orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · turn on Dye to dye or band',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -378,8 +377,6 @@ function refreshModeUI(): void {
   for (const [k, b] of Object.entries(modeButtons)) b.classList.toggle('on', k === plan.mode);
 }
 
-/** what the pointer does right now, shown as a chip on the bundle view */
-const MODE_LABEL: Record<Tool, string> = { inspect: 'inspect', dye: 'dye', band: 'band', fold: 'fold', centre: 'pinch', orbit: 'orbit' };
 const CURSOR: Record<Tool, string> = { inspect: 'help', dye: 'crosshair', band: 'crosshair', fold: 'crosshair', centre: 'crosshair', orbit: 'grab' };
 
 function setTool(t: Tool): void {
@@ -387,13 +384,12 @@ function setTool(t: Tool): void {
   tool = t;
   foldDraft = [];
   dirty = true;
-  paintBtn.classList.toggle('on', isPaint(t));
-  const chip = document.getElementById('mode-chip')!;
-  chip.textContent = MODE_LABEL[t];
-  chip.className = `chip mode-${t}`;
+  paintBtn.textContent = paintTool === 'band' ? 'Band' : 'Dye';
+  paintBtn.className = `paint-toggle tool-${paintTool}${isPaint(t) ? ' on' : ''}`;
+  paintBtn.setAttribute('aria-pressed', String(isPaint(t)));
   foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  chip.title = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
+  paintBtn.title = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -762,7 +758,7 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
     // two-finger orbit + pinch zoom
     const [a, b] = [...touches.values()];
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
-    // two fingers: drag pans, pinch zooms (one finger orbits when paint is off)
+    // two fingers: drag pans, pinch zooms (one finger orbits when the paint toggle is off)
     if (gesture) { const k = folded3dCanvas.width / foldedCanvas.clientWidth; view3d.pan((cx - gesture.x) * k, (cy - gesture.y) * k); gesture.x = cx; gesture.y = cy; }
     if (pinchDist > 0) view3d.zoom(pinchDist / d);
     pinchDist = d;
