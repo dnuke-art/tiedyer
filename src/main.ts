@@ -66,10 +66,14 @@ function sync3d(px: Float32Array, py: Float32Array, pz: Float32Array, reframe: b
 function is3d(): boolean { return view.three && !!view3d; }
 
 let gpu: GpuSolver | null = null;
+/** why the GPU solver is not in use, shown in the readout ('' when it is) */
+let gpuWhy = '';
 try {
   if (GpuSolver.supported()) gpu = new GpuSolver(sim);
+  else gpuWhy = 'no WebGL2 float render targets';
 } catch (e) {
   console.warn('GPU solver unavailable, using CPU', e);
+  gpuWhy = (e as Error).message || String(e);
   gpu = null;
 }
 
@@ -1423,7 +1427,7 @@ function renderOnce(): void {
     ? (twistStatus ? [`twisting: ${twistStatus}`] : [`twist ${plan.twist.turns} turns`, `${sim.N}×${sim.M} particles`])
     : [`${faces.length} faces · ${isFold(bundle) ? bundle.maxLayers : 0} layers`, `${sim.N}×${sim.M} texels`];
   const pouring = hold && dragging ? `pouring: soak ${hold.stroke.pen < 10 ? hold.stroke.pen.toFixed(1) : hold.stroke.pen.toFixed(0)} layers` : '';
-  statusEl.textContent = [hoverInfo, pouring, lastReach, ...shape, `${gpu ? 'GPU' : 'CPU'} · t=${sim.t}`].filter(Boolean).join('\n');
+  statusEl.textContent = [hoverInfo, pouring, lastReach, ...shape, `${gpu ? (gpu.split ? 'GPU (2-pass)' : 'GPU') : 'CPU'} · t=${sim.t}`, gpuWhy && `GPU off: ${gpuWhy}`].filter(Boolean).join('\n');
 }
 
 // Debug / scripting handle (also handy for automated tests).

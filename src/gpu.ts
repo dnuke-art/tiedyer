@@ -151,6 +151,11 @@ export class GpuSolver {
   private texH: WebGLTexture[] = [];
   private texB: WebGLTexture[] = [];
   private fbo: WebGLFramebuffer[] = [];
+  /** bleach targets when the step is split in two (see resize) */
+  private fboB: WebGLFramebuffer[] = [];
+  /** true when the GPU will not render to all three float targets at once (48 bytes a
+   *  pixel; the iOS simulator and older iPhones allow 32), so each step draws twice */
+  split = false;
   private texLinkA!: WebGLTexture;
   private texLinkB!: WebGLTexture;
   private texWeightA!: WebGLTexture;
@@ -206,7 +211,7 @@ export class GpuSolver {
     this.canvas.width = this.N;
     this.canvas.height = this.M;
     for (const t of [...this.texF, ...this.texH, ...this.texB]) gl.deleteTexture(t);
-    for (const f of this.fbo) gl.deleteFramebuffer(f);
+    for (const f of [...this.fbo, ...this.fboB]) gl.deleteFramebuffer(f);
     for (const t of [this.texLinkA, this.texLinkB, this.texWeightA, this.texWeightB, this.texPress]) if (t) gl.deleteTexture(t);
     this.texF = [this.makeTex(), this.makeTex()];
     this.texH = [this.makeTex(), this.makeTex()];
@@ -216,6 +221,12 @@ export class GpuSolver {
     this.texWeightA = this.makeTex();
     this.texWeightB = this.makeTex();
     this.texPress = this.makeTex();
+    // One pass writes dye, fixed dye and bleach together. If the GPU refuses a target that
+    // wide, split it: dye + fixed dye in one framebuffer, bleach (the shader's third
+    // output) in another, and the step draws into each.
+    const complete = () => gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    this.split = false;
+    this.fboB = [];
     this.fbo = [0, 1].map((i) => {
       const fb = gl.createFramebuffer()!;
       gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
@@ -223,9 +234,24 @@ export class GpuSolver {
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.texH[i], 0);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, this.texB[i], 0);
       gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]);
-      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('fbo incomplete');
+      if (!complete() || this.split) {
+        this.split = true;
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, null, 0);
+        gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+        if (!complete()) throw new Error('fbo incomplete');
+      }
       return fb;
     });
+    if (this.split) {
+      this.fboB = [0, 1].map((i) => {
+        const fb = gl.createFramebuffer()!;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT2, gl.TEXTURE_2D, this.texB[i], 0);
+        gl.drawBuffers([gl.NONE, gl.NONE, gl.COLOR_ATTACHMENT2]);
+        if (!complete()) throw new Error('bleach fbo incomplete');
+        return fb;
+      });
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.scratch = new Float32Array(this.N * this.M * 4);
     this.cur = 0;
@@ -294,6 +320,7 @@ export class GpuSolver {
         for (let i = 0; i < n; i++) a[i] = this.scratch[i * 4 + k];
       }
     }
+    if (this.split) gl.bindFramebuffer(gl.FRAMEBUFFER, this.fboB[this.cur]);
     gl.readBuffer(gl.COLOR_ATTACHMENT2);
     gl.readPixels(0, 0, this.N, this.M, gl.RGBA, gl.FLOAT, this.scratch);
     const bl = this.sim.bl;
@@ -333,6 +360,7 @@ export class GpuSolver {
       this.bindTex(1, this.texH[src], this.stepU.uH);
       this.bindTex(7, this.texB[src], this.stepU.uB);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (this.split) { gl.bindFramebuffer(gl.FRAMEBUFFER, this.fboB[dst]); gl.drawArrays(gl.TRIANGLES, 0, 3); }
       this.cur = dst;
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
