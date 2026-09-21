@@ -45,7 +45,8 @@ Pencil. A few interactions are naturally different by input device:
 
 | Action | Mouse (website, or iPad with a mouse) | Touch (iPhone / iPad) |
 |---|---|---|
-| Squirt dye / place band | Left-drag | One finger |
+| Squirt dye | Left-drag | One finger |
+| Tie a band (2D or 3D) | Click a point, move to set the angle, click; in 3D a drag orbits instead | Tap, move, tap; in 3D a drag orbits instead |
 | Keep pouring so it soaks deeper | Hold the button still | Hold the finger still |
 | Orbit the 3D bundle | Right-drag always; left-drag when the Dye toggle is off | One finger when the Dye toggle is off (turn it off to look around) |
 | Zoom | Wheel | Pinch |

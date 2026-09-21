@@ -1,12 +1,12 @@
 import './style.css';
-import { Vec2, Mat, apply, side, normalize, dist, clipPolygon } from './geom';
+import { Vec2, Mat, apply, mul, side, normalize, dist, clipPolygon } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, foldPreview, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { foldMesh } from './foldmesh';
 import { encodeGlb } from './glb';
 import { ClothView, ClothBundle, makeClothBundle } from './cloth';
-import { View3D, Vec3, norm as norm3, cross as cross3, sub as sub3, len3 } from './view3d';
-import { Plan, Stroke, Mode, BLEACH, defaultPlan, demoPlan, spiralDemoPlan, bleachDemoPlan, serializePlan, parsePlan } from './plan';
+import { View3D, Vec3, sub as sub3, len3 } from './view3d';
+import { Plan, Stroke, BandStamp, Mode, BLEACH, defaultPlan, demoPlan, spiralDemoPlan, bleachDemoPlan, serializePlan, parsePlan } from './plan';
 import { Sim } from './sim';
 import { isNative, deliverFile, tap, toBase64 } from './native';
 import { Renderer, ViewOpts } from './render';
@@ -83,7 +83,9 @@ function setThree(on: boolean): void {
   v3dBtn.classList.toggle('on', view.three);
   try { localStorage.setItem('tiedyer.view3d', view.three ? '1' : '0'); } catch { /* ignore */ }
   if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
-  if (view.three && (tool === 'dye' || tool === 'band')) setTool('orbit');
+  // in 3D a drag squirts, so start out orbiting; the band tool places points with taps and
+  // orbits on a drag already, so it stays
+  if (view.three && tool === 'dye') setTool('orbit');
   if (!view.three && tool === 'orbit') setTool('dye');
   else setTool(tool); // refresh the hint for the new view
   dirty = true;
@@ -104,7 +106,8 @@ type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
 /** the last paint tool (dye/band) chosen, restored when orbit is toggled off */
 let paintTool: 'dye' | 'band' = 'dye';
-const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1 };
+/** r: squirt radius, cm; bandW: width of a rubber band, cm */
+const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1, bandW: 1 };
 
 /** A squirt still being poured: while the button stays down on the spot, its soak grows
  *  by `flow` × the soak setting per second and the squirt is re-applied from the snapshot
@@ -156,13 +159,68 @@ function foldClick(p: Vec2, under: boolean): void {
   }
   dirty = true;
 }
+/** The band being tied, the same way a fold line is drawn: the first tap fixes a point,
+ *  the pointer sets the angle, the second tap ties it. A band is a straight strip right
+ *  around the bundle (a slab standing on the table), squeezing every layer it crosses. */
+let bandDraft: Vec2[] = [];
+function bandDraftLine(): { p: Vec2; d: Vec2 } | null {
+  if (tool !== 'band' || !bandDraft.length) return null;
+  const a = bandDraft[0], b = hoverFolded;
+  if (!b || dist(a, b) < 1e-6) return null;
+  return { p: a, d: normalize({ x: b.x - a.x, y: b.y - a.y }) };
+}
+function bandClick(p: Vec2): void {
+  dirty = true;
+  if (!bandDraft.length) { bandDraft = [p]; return; }
+  const a = bandDraft[0];
+  bandDraft = [];
+  if (dist(a, p) < 0.2) return; // the same spot twice gives no angle
+  const d = normalize({ x: p.x - a.x, y: p.y - a.y });
+  tap();
+  plan.bands.push({ kind: 'slab', p: [a.x, a.y, 0], n: [-d.y, d.x, 0], w: brush.bandW });
+  pressChanged();
+}
+/** a slab standing on the table, i.e. a band tied straight across the bundle (seen from above, a strip) */
+type SlabBand = Extract<BandStamp, { kind: 'slab' }>;
+const isUpright = (b: BandStamp): b is SlabBand => b.kind === 'slab' && Math.abs(b.n[2]) < 1e-3;
+/** the bundle's bounding box in bundle cm, cached per geometry */
+let boxCache: { v: number; x0: number; x1: number; y0: number; y1: number; z1: number } | null = null;
+function bundleBox(): { x0: number; x1: number; y0: number; y1: number; z1: number } | null {
+  if (!bundle) return null;
+  if (boxCache && boxCache.v === geomVersion) return boxCache;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z1 = 0;
+  const { px, py, pz, valid } = bundle;
+  for (let i = 0; i < px.length; i++) {
+    if (!valid[i]) continue;
+    if (px[i] < x0) x0 = px[i]; if (px[i] > x1) x1 = px[i];
+    if (py[i] < y0) y0 = py[i]; if (py[i] > y1) y1 = py[i];
+    if (pz[i] > z1) z1 = pz[i];
+  }
+  if (!isFinite(x0)) return null;
+  boxCache = { v: geomVersion, x0, x1, y0, y1, z1 };
+  return boxCache;
+}
+/** the stretch of the line through p along d that crosses the bundle, plus a margin, as its two ends */
+function lineAcross(p: Vec2, d: Vec2, margin = 1): [Vec2, Vec2] | null {
+  const b = bundleBox();
+  if (!b) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (const [x, y] of [[b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]]) {
+    const t = (x - p.x) * d.x + (y - p.y) * d.y;
+    lo = Math.min(lo, t); hi = Math.max(hi, t);
+  }
+  lo -= margin; hi += margin;
+  return [{ x: p.x + d.x * lo, y: p.y + d.y * lo }, { x: p.x + d.x * hi, y: p.y + d.y * hi }];
+}
+/** scratch layer for bands on the 2D bundle, clipped to the cloth */
+const bandLayer = document.createElement('canvas');
+
 let hoverFolded: Vec2 | null = null;
 let hoverFlat: Vec2 | null = null;
 let dragging = false;
 /** strokes on the plan when the current one-finger drag began (a second finger takes back what it laid down) */
 let dragStrokes0 = 0;
 let lastStamp: Vec2 | null = null;
-let bandsDirty = false;
 
 let saveTimer: number | undefined;
 function touched(): void {
@@ -341,7 +399,7 @@ const ghLink = sideEl.querySelector('a.gh');
 const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
-  band: 'drag to place rubber band / clamp (resist)',
+  band: 'tap a point, move to set the angle, tap again to tie a band around the bundle · esc cancels',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
   orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · turn on Dye to dye or band',
@@ -383,13 +441,14 @@ function setTool(t: Tool): void {
   if (t === 'dye' || t === 'band') paintTool = t;
   tool = t;
   foldDraft = [];
+  bandDraft = [];
   dirty = true;
   paintBtn.textContent = paintTool === 'band' ? 'Band' : 'Dye';
   paintBtn.className = `paint-toggle tool-${paintTool}${isPaint(t) ? ' on' : ''}`;
   paintBtn.setAttribute('aria-pressed', String(isPaint(t)));
   foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  paintBtn.title = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
+  paintBtn.title = HINTS[t] + (is3d() && t === 'dye' ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -457,7 +516,6 @@ function buildSidebar(): void {
   const partSel = el('select', {}, ...[61, 81, 101, 121, 161].map((n) => el('option', { value: n }, `${n}² particles`))) as HTMLSelectElement;
   partSel.value = String([61, 81, 101, 121, 161].includes(plan.N) ? plan.N : 101);
   partSel.addEventListener('change', () => { plan.N = parseInt(partSel.value); reconfigure(); });
-  toolButtons.inspect = btn('Inspect', () => setTool('inspect'));
   toolButtons.dye = btn('Dye', () => setTool('dye'));
   toolButtons.band = btn('Band', () => setTool('band'));
   toolButtons.fold = btn('Draw fold line', () => setTool('fold'));
@@ -538,7 +596,7 @@ function buildSidebar(): void {
     ),
     el('details', { open: true },
       el('summary', {}, 'Dye & bindings'),
-      el('div', { class: 'row tools' }, toolButtons.inspect, toolButtons.dye, toolButtons.band),
+      el('div', { class: 'row tools' }, toolButtons.dye, toolButtons.band),
       swatchWrap,
       slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
@@ -549,6 +607,8 @@ function buildSidebar(): void {
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
+      slider('band width cm', 0.3, 5, 0.1, () => brush.bandW, (v) => { brush.bandW = v; dirty = true; }, (v) => v.toFixed(1)),
+      row(btn('Undo band', () => { if (plan.bands.length) { plan.bands.pop(); pressChanged(); } })),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
@@ -691,11 +751,6 @@ function paintSide(): 'top' | 'bottom' {
 function stampAt(p: Vec2): void {
   if (tool === 'dye') {
     addStroke({ kind: 'brush', p, r: brush.r, dye: brush.dye, amount: brush.amount, side: paintSide(), pen: brush.pen }, true);
-  } else if (tool === 'band') {
-    tap();
-    plan.bands.push({ p, r: brush.r });
-    bandsDirty = true;
-    dirty = true;
   }
 }
 
@@ -742,8 +797,6 @@ function stampAt3d(ev: PointerEvent): void {
   }
 }
 
-let bandStart: { p: Vec3; d: Vec3 } | null = null;
-let bandEnd: Vec3 | null = null;
 /** camera gesture state */
 let gesture: { kind: 'orbit' | 'pan'; x: number; y: number } | null = null;
 const touches = new Map<number, { x: number; y: number }>();
@@ -775,18 +828,14 @@ foldedCanvas.addEventListener('pointermove', (ev) => {
   hoverFolded = renderer.foldedToCm(ev);
   if (is3d()) {
     hover3d = ev;
-    if (tool === 'fold') { hoverFolded = foldPoint3d(ev); dirty = true; }
+    if (tool === 'fold' || tool === 'band') { hoverFolded = foldPoint3d(ev); dirty = true; }
     if (dragging && tool === 'dye') {
       const h = hit3d(ev);
       if (h && (!lastStamp3 || len3(sub3(lastStamp3, h.p)) >= brush.r * 0.35)) { stampAt3d(ev); lastStamp3 = h.p; }
-    } else if (dragging && tool === 'band') {
-      const h = hit3d(ev);
-      if (h) bandEnd = h.p;
-      dirty = true;
     }
     return;
   }
-  if (dragging && (tool === 'dye' || tool === 'band')) {
+  if (dragging && tool === 'dye') {
     if (!lastStamp || dist(lastStamp, hoverFolded) >= brush.r * 0.35) {
       stampAt(hoverFolded);
       lastStamp = hoverFolded;
@@ -819,13 +868,13 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       hover3d = null;
       // the first finger already squirted before the second arrived: take that back, this is a camera gesture
       if (dragging && plan.strokes.length > dragStrokes0) { plan.strokes.length = dragStrokes0; hold = null; replay(); touched(); }
-      dragging = false; lastStamp = null; lastStamp3 = null; bandStart = null; bandEnd = null; bandsDirty = false;
+      dragging = false; lastStamp = null; lastStamp3 = null;
       return;
     }
   }
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || tool === 'fold' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || tool === 'fold' || tool === 'band' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
-    foldPress = tool === 'fold' && plan.mode === 'fold' && ev.button === 0 && !ev.altKey && !ev.ctrlKey
+    foldPress = ((tool === 'fold' && plan.mode === 'fold') || tool === 'band') && ev.button === 0 && !ev.altKey && !ev.ctrlKey
       ? { x: ev.clientX, y: ev.clientY, p: foldPoint3d(ev), under: ev.shiftKey } : null;
     if (!foldPress) hover3d = null;
     return;
@@ -836,13 +885,14 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
   if (is3d()) {
     dragStrokes0 = plan.strokes.length;
     if (tool === 'dye') { dragging = true; const h = hit3d(ev); lastStamp3 = h ? h.p : null; stampAt3d(ev); }
-    else if (tool === 'band') { dragging = true; const h = hit3d(ev); bandStart = h ? { p: h.p, d: h.d } : null; bandEnd = null; }
     return;
   }
-  if (tool === 'dye' || tool === 'band') {
+  if (tool === 'dye') {
     dragging = true;
     lastStamp = p;
     stampAt(p);
+  } else if (tool === 'band') {
+    bandClick(p);
   } else if (tool === 'fold' && plan.mode === 'fold') {
     foldClick(p, ev.shiftKey);
   }
@@ -852,10 +902,10 @@ const release = (ev: PointerEvent) => {
   if (touches.size < 2) pinchDist = 0;
   if (gesture) {
     gesture = null;
-    // a tap (no drag) with the fold tool in 3D places a fold point
+    // a tap (no drag) with the fold or band tool in 3D places a point
     if (foldPress) {
       const moved = Math.hypot(ev.clientX - foldPress.x, ev.clientY - foldPress.y);
-      if (moved < 6 && foldPress.p) foldClick(foldPress.p, foldPress.under);
+      if (moved < 6 && foldPress.p) { if (tool === 'band') bandClick(foldPress.p); else foldClick(foldPress.p, foldPress.under); }
       foldPress = null;
     }
     return;
@@ -865,22 +915,6 @@ const release = (ev: PointerEvent) => {
     lastStamp = null;
     lastStamp3 = null;
     if (hold) { hold = null; dirty = true; }
-    if (bandStart && bandEnd) {
-      // rubber band: a slab through the two hit points, containing the view direction
-      const along = sub3(bandEnd, bandStart.p);
-      if (len3(along) > 0.3) {
-        const n = norm3(cross3(along, bandStart.d));
-        const mid: Vec3 = [(bandStart.p[0] + bandEnd[0]) / 2, (bandStart.p[1] + bandEnd[1]) / 2, (bandStart.p[2] + bandEnd[2]) / 2];
-        tap();
-        plan.bands.push({ kind: 'slab', p: mid, n, w: brush.r });
-        bandsDirty = true;
-      }
-    }
-    bandStart = null; bandEnd = null;
-    if (bandsDirty) {
-      bandsDirty = false;
-      pressChanged();
-    }
   }
 };
 window.addEventListener('pointerup', release);
@@ -952,7 +986,7 @@ window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;
   if (helpDialog.open) return; // the dialog handles esc itself
   if (ev.key === '?') { openHelp(); return; }
-  if (ev.key === 'Escape') { foldDraft = []; dirty = true; }
+  if (ev.key === 'Escape') { foldDraft = []; bandDraft = []; dirty = true; }
   if (ev.key === ' ') { ev.preventDefault(); playBtn.click(); }
   if (ev.key === 'z') { plan.strokes.pop(); replay(); touched(); }
 });
@@ -997,7 +1031,7 @@ function frame(): void {
     // auto-pause once the batch is done: almost no free dye left to move
     if (frameCount % 45 === 0 && batchDone()) setPlaying(false);
   }
-  const hoverKey = `${hoverFlat?.x},${hoverFlat?.y},${hoverFolded?.x},${hoverFolded?.y},${foldDraft.length},${hover3d?.clientX},${hover3d?.clientY}`;
+  const hoverKey = `${hoverFlat?.x},${hoverFlat?.y},${hoverFolded?.x},${hoverFolded?.y},${foldDraft.length},${bandDraft.length},${hover3d?.clientX},${hover3d?.clientY}`;
   if (hoverKey !== lastHoverKey) { lastHoverKey = hoverKey; dirty = true; }
   const c1 = flatCanvas, c2 = foldedCanvas;
   if (c1.width !== Math.floor(c1.clientWidth * renderer.dpr) || c2.width !== Math.floor(c2.clientWidth * renderer.dpr)
@@ -1040,6 +1074,72 @@ function drawFoldPreviewFlat(draft: { p: Vec2; d: Vec2; moveSign?: 1 | -1 }): vo
 }
 
 /** markers, brush cursor and band drag on the transparent canvas above the 3D view */
+/** Bands on the 2D bundle: each straight band as the strip it squeezes, clipped to the
+ *  cloth (on a scratch layer, so overlapping layers do not darken it), and the band
+ *  being tied as an outline with its fixed point. */
+function drawBands2d(ctx: CanvasRenderingContext2D, V: Mat): void {
+  const dpr = renderer.dpr;
+  const draft = tool === 'band' ? bandDraftLine() : null;
+  const strips: { p: Vec2; d: Vec2; w: number }[] = [];
+  for (const b of plan.bands) if (isUpright(b)) strips.push({ p: { x: b.p[0], y: b.p[1] }, d: { x: b.n[1], y: -b.n[0] }, w: b.w });
+  const quad = (p: Vec2, d: Vec2, w: number): Vec2[] | null => {
+    const ends = lineAcross(p, d, 3);
+    if (!ends) return null;
+    const n = { x: -d.y * w / 2, y: d.x * w / 2 };
+    return [{ x: ends[0].x + n.x, y: ends[0].y + n.y }, { x: ends[1].x + n.x, y: ends[1].y + n.y }, { x: ends[1].x - n.x, y: ends[1].y - n.y }, { x: ends[0].x - n.x, y: ends[0].y - n.y }].map((q) => apply(V, q));
+  };
+  if (strips.length) {
+    const c = ctx.canvas;
+    if (bandLayer.width !== c.width || bandLayer.height !== c.height) { bandLayer.width = c.width; bandLayer.height = c.height; }
+    const t = bandLayer.getContext('2d')!;
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.globalCompositeOperation = 'source-over';
+    t.clearRect(0, 0, c.width, c.height);
+    const clothFaces = isFold(bundle) ? faces : [];
+    if (clothFaces.length) {
+      // the cloth's footprint, then the strips kept only where it is
+      t.fillStyle = '#000';
+      for (const f of clothFaces) {
+        t.beginPath();
+        f.flat.forEach((q, i) => { const s = apply(mul(V, f.T), q); i ? t.lineTo(s.x, s.y) : t.moveTo(s.x, s.y); });
+        t.closePath();
+        t.fill();
+      }
+      t.globalCompositeOperation = 'source-in';
+    }
+    t.fillStyle = '#141418';
+    for (const s of strips) {
+      const q = quad(s.p, s.d, s.w);
+      if (!q) continue;
+      t.beginPath();
+      q.forEach((v, i) => (i ? t.lineTo(v.x, v.y) : t.moveTo(v.x, v.y)));
+      t.closePath();
+      t.fill();
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(bandLayer, 0, 0);
+    ctx.restore();
+  }
+  if (tool !== 'band') return;
+  if (draft) {
+    const q = quad(draft.p, draft.d, brush.bandW);
+    if (q) {
+      ctx.beginPath();
+      q.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(215,213,207,0.25)'; ctx.fill();
+      ctx.strokeStyle = '#d7d5cf'; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  for (const m of [...bandDraft, ...(hoverFolded ? [hoverFolded] : [])]) {
+    const q = apply(V, m);
+    ctx.beginPath(); ctx.arc(q.x, q.y, 4 * dpr, 0, Math.PI * 2);
+    ctx.fillStyle = '#d7d5cf'; ctx.fill();
+  }
+}
+
 function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
   const c = foldedCanvas;
   Renderer.fit(c, renderer.dpr);
@@ -1062,12 +1162,12 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
       ctx.lineWidth = 1.5 * dpr; ctx.strokeStyle = '#fff'; ctx.stroke();
     }
   }
-  if (hit && (tool === 'dye' || tool === 'band' || tool === 'inspect')) {
+  if (hit && (tool === 'dye' || tool === 'inspect')) {
     const q = proj(hit.p);
     if (q) {
       const rpx = brush.r * ppc(q.depth);
       ctx.beginPath(); ctx.arc(q.x, q.y, tool === 'inspect' ? 5 * dpr : rpx, 0, Math.PI * 2);
-      ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : tool === 'band' ? '#222' : '#ff7a1a';
+      ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : '#ff7a1a';
       ctx.lineWidth = 2 * dpr; ctx.stroke();
     }
   }
@@ -1124,13 +1224,38 @@ function draw3dOverlay(hit: ReturnType<typeof hit3d>): void {
       ctx.fillStyle = '#ff7a1a'; ctx.fill();
     }
   }
-  if (bandStart && bandEnd) {
-    const a = proj(bandStart.p), b = proj(bandEnd);
-    if (a && b) {
-      ctx.strokeStyle = 'rgba(30,30,30,0.85)';
-      ctx.lineWidth = Math.max(2, brush.r * ppc(a.depth));
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  // bands: each is a loop standing on the table right around the bundle, drawn as the
+  // strip it squeezes (width w) from the table to the top of the stack; the one being
+  // tied is outlined in the band colour
+  const box = bundleBox();
+  if (box) {
+    const zTop = box.z1 + 0.2, zBot = -0.2;
+    const strip3d = (p: Vec2, d: Vec2, w: number, fill: string, stroke: string, dash: boolean): void => {
+      const ends = lineAcross(p, d);
+      if (!ends) return;
+      const n = { x: -d.y * w / 2, y: d.x * w / 2 };
+      for (const s of [-1, 1]) {
+        const [A, B] = ends.map((e) => ({ x: e.x + n.x * s, y: e.y + n.y * s }));
+        const q = ([[A.x, A.y, zBot], [B.x, B.y, zBot], [B.x, B.y, zTop], [A.x, A.y, zTop]] as Vec3[]).map(proj);
+        if (q.some((v) => !v)) continue;
+        ctx.beginPath();
+        q.forEach((v, i) => (i ? ctx.lineTo(v!.x, v!.y) : ctx.moveTo(v!.x, v!.y)));
+        ctx.closePath();
+        ctx.fillStyle = fill; ctx.fill();
+        ctx.strokeStyle = stroke; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash(dash ? [6 * dpr, 4 * dpr] : []); ctx.stroke(); ctx.setLineDash([]);
+      }
+    };
+    for (const b of plan.bands) if (isUpright(b)) strip3d({ x: b.p[0], y: b.p[1] }, { x: b.n[1], y: -b.n[0] }, b.w, 'rgba(20,20,24,0.28)', 'rgba(20,20,24,0.8)', false);
+    if (tool === 'band') {
+      const draft = bandDraftLine();
+      if (draft) strip3d(draft.p, draft.d, brush.bandW, 'rgba(215,213,207,0.22)', 'rgba(215,213,207,0.95)', true);
+      const marks = [...bandDraft, ...(hoverFolded ? [hoverFolded] : [])];
+      for (const m of marks) {
+        const q = proj([m.x, m.y, zTop]);
+        if (!q) continue;
+        ctx.beginPath(); ctx.arc(q.x, q.y, 4 * dpr, 0, Math.PI * 2);
+        ctx.fillStyle = '#d7d5cf'; ctx.fill();
+      }
     }
   }
 }
@@ -1236,11 +1361,12 @@ function renderOnce(): void {
   }
   const overlay = (ctx: CanvasRenderingContext2D, V: Mat) => {
     const s = renderer.foldedScale();
-    if ((tool === 'dye' || tool === 'band') && hoverFolded) {
+    drawBands2d(ctx, V);
+    if (tool === 'dye' && hoverFolded) {
       const q = apply(V, hoverFolded);
       ctx.beginPath();
       ctx.arc(q.x, q.y, brush.r * s, 0, Math.PI * 2);
-      ctx.strokeStyle = tool === 'dye' ? plan.dyes[brush.dye]?.color ?? '#fff' : '#222';
+      ctx.strokeStyle = plan.dyes[brush.dye]?.color ?? '#fff';
       ctx.lineWidth = 2 * renderer.dpr;
       ctx.stroke();
     }
