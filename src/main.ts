@@ -505,8 +505,6 @@ function buildSidebar(): void {
       btn('Bleach', () => { plan = bleachDemoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
-      btn('Image', saveImage),
-      el('button', { onclick: saveGlb, title: 'Export the folded bundle as a 3D model (glTF binary) with the dye as its texture' }, 'GLB'),
       btn('Help', openHelp),
     ),
     el('details', { open: true },
@@ -557,13 +555,6 @@ function buildSidebar(): void {
     el('details', { open: true },
       el('summary', {}, 'View'),
       row(el('label', {}, '3D style'), styleSel),
-      (() => {
-        const sel = el('select', { title: 'Pixel size of the long side of the PNG the Image button saves. Detail comes from the resolution setting under Cloth.' },
-          ...[1024, 2048, 4096].map((n) => el('option', { value: n }, `${n} px`))) as HTMLSelectElement;
-        sel.value = String(exportPx);
-        sel.addEventListener('change', () => { exportPx = parseInt(sel.value); try { localStorage.setItem('tiedyer.exportPx', sel.value); } catch { /* ignore */ } });
-        return row(el('label', {}, 'image size'), sel);
-      })(),
       slider('split', SPLIT_MIN, SPLIT_MAX, 0.01, () => split, setSplit, (v) => `${Math.round(v * 100)}%`),
       (thickRow = logSlider('layer height cm', 0.01, 1, () => plan.thickness, setThickness, (v) => v.toFixed(2), () => { rebuildGeometry(); touched(); })),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
@@ -573,6 +564,18 @@ function buildSidebar(): void {
       checkbox('Show binding pressure on flat', () => view.showPress, (v) => { view.showPress = v; dirty = true; dirtyDye = true; }),
       checkbox('Tint free bleach', () => view.showBleach, (v) => { view.showBleach = v; dirty = true; dirtyDye = true; }),
       slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; dirtyDye = true; }, (v) => v.toFixed(1)),
+    ),
+    el('details', { open: true },
+      el('summary', {}, 'Export'),
+      (() => {
+        const sel = el('select', { title: 'Pixel size of the long side of the PNG the Image button saves. Detail comes from the resolution setting under Cloth.' },
+          ...[1024, 2048, 4096].map((n) => el('option', { value: n }, `${n} px`))) as HTMLSelectElement;
+        sel.value = String(exportPx);
+        sel.addEventListener('change', () => { exportPx = parseInt(sel.value); try { localStorage.setItem('tiedyer.exportPx', sel.value); } catch { /* ignore */ } });
+        return row(el('label', {}, 'image size'), sel);
+      })(),
+      row(el('button', { onclick: saveImage, title: 'Save the unfolded cloth as a PNG at the image size above' }, 'Image (PNG)'),
+        el('button', { onclick: saveGlb, title: 'Export the folded bundle as a 3D model (glTF binary) with the dye as its texture' }, '3D model (GLB)')),
     ),
   );
   resSel.addEventListener('change', () => { plan.N = parseInt(resSel.value); reconfigure(); });

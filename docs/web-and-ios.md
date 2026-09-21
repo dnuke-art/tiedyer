@@ -23,7 +23,7 @@ are deliberately switched at build time or at run time. Those are listed below.
 | Everything you see: views, sidebar, sliders, swatches, chips, hints | The web app | The same web app, in a WKWebView |
 | Simulation (folds, cloth, dye, bleach, diffusion) | WebGL2 in the browser | WebGL2 in WebKit, on the device GPU |
 | Colour picker popup | The browser's own picker for `<input type="color">`: Chrome's popup on Linux/Windows, the macOS Colors panel on a Mac | iOS's system colour sheet (the one with grid, spectrum and sliders). We never wrote a picker; we only decide when it opens |
-| Save / Image export (PNG, 1024 to 4096 px, chosen under View) | A file download | The iOS share sheet, with Save Image / Save to Files (`src/native.ts`) |
+| Save / Image export (PNG, 1024 to 4096 px, chosen under Export) | A file download | The iOS share sheet, with Save Image / Save to Files (`src/native.ts`) |
 | GLB export (the folded bundle as a 3D model, dye as texture) | A file download | The share sheet; Save to Files, or AirDrop it to a Mac and open it in Preview or Blender |
 | Haptics on strokes and bands | Nothing | A light tap via the Haptics plugin |
 | GitHub link in the header | Shown | Hidden (`.native a.gh`) |
