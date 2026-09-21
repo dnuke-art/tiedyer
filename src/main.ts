@@ -99,8 +99,6 @@ v3dBtn.addEventListener('click', () => setThree(true));
 const paintBtn = document.getElementById('paintBtn') as HTMLButtonElement;
 const isPaint = (t: Tool) => t === 'dye' || t === 'band';
 paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? 'orbit' : paintTool));
-document.getElementById('zoomIn')!.addEventListener('click', () => { view3d?.zoom(0.8); dirty = true; });
-document.getElementById('zoomOut')!.addEventListener('click', () => { view3d?.zoom(1.25); dirty = true; });
 document.getElementById('fitView')!.addEventListener('click', () => { view3d?.frame(); dirty = true; });
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
@@ -347,7 +345,7 @@ const HINTS: Record<Tool, string> = {
   band: 'drag to place rubber band / clamp (resist)',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
-  orbit: 'drag to orbit · wheel or +/− to zoom · shift-drag to pan · turn on paint to dye or band',
+  orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · turn on paint to dye or band',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -496,16 +494,31 @@ function buildSidebar(): void {
   const stepCounter = el('span', { class: 'val' }, '0');
   setInterval(() => { stepCounter.textContent = String(sim.t); }, 250);
 
+  /** Presets dropdown: picking one loads that demo, then the menu shows its title again. */
+  const presetSelect = (): HTMLSelectElement => {
+    const presets: Record<string, () => void> = {
+      kikko: () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
+      spiral: () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); },
+      bleach: () => { plan = bleachDemoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
+    };
+    const sel = el('select', { title: 'Load a ready-made fold and dye' },
+      el('option', { value: '', disabled: true, selected: true, hidden: true }, 'Presets'),
+      el('option', { value: 'kikko' }, 'Kikko'),
+      el('option', { value: 'spiral' }, 'Spiral'),
+      el('option', { value: 'bleach' }, 'Bleach')) as HTMLSelectElement;
+    sel.addEventListener('change', () => { presets[sel.value]?.(); sel.value = ''; });
+    return sel;
+  };
   sideEl.replaceChildren(
-    el('h1', {}, 'tiedyer', ...(ghLink ? [ghLink] : [])),
+    // title row, level with ☰: the app name, then the GitHub link and Help at the right edge
+    el('h1', {}, 'tiedyer',
+      ...(ghLink ? [ghLink] : []),
+      el('button', { class: 'help-btn', onclick: openHelp, title: 'How Tie Dyer works (?)' }, 'Help')),
     row(
       btn('New', () => { plan = defaultPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); }),
-      btn('Kikko', () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
-      btn('Spiral', () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); }),
-      btn('Bleach', () => { plan = bleachDemoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
+      presetSelect(),
       btn('Save', savePlan),
       btn('Load', loadPlanFile),
-      btn('Help', openHelp),
     ),
     el('details', { open: true },
       el('summary', {}, 'Cloth'),

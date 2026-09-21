@@ -66,10 +66,13 @@ canvas { flex: 1; width: 100%; height: 100%; min-height: 0; background: #2f2f36;
 a.gh { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-size: 12px; font-weight: 400; letter-spacing: 0; text-decoration: none; }
 h1 { display: flex; align-items: baseline; }
 /* icon only in the panel title; the word stays for screen readers via aria-label */
-h1 a.gh { font-size: 0; align-self: center; }
+h1 a.gh { font-size: 0; align-self: center; margin-left: auto; }
+h1 .help-btn { margin-left: 10px; align-self: center; padding: 3px 10px; font-size: 13px; font-weight: 400; letter-spacing: 0; }
+/* the app hides the GitHub link, so there Help itself takes the push to the right edge */
+.native h1 .help-btn { margin-left: auto; }
 a.gh:hover { color: var(--accent); }
 .native a.gh { display: none; }
-h1 { font-size: 16px; margin: 4px 0 10px; letter-spacing: 0.04em; }
+h1 { font-size: 16px; margin: 0 0 10px; letter-spacing: 0.04em; }
 details { border-top: 1px solid var(--line); padding: 6px 0; }
 summary { cursor: pointer; font-weight: 600; padding: 4px 0; user-select: none; }
 .row { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }

@@ -48,7 +48,7 @@ Pencil. A few interactions are naturally different by input device:
 | Squirt dye / place band | Left-drag | One finger |
 | Keep pouring so it soaks deeper | Hold the button still | Hold the finger still |
 | Orbit the 3D bundle | Right-drag always; left-drag when Paint is off | One finger when Paint is off (turn Paint off to look around) |
-| Zoom | Wheel, or + / − | Pinch, or + / − |
+| Zoom | Wheel | Pinch |
 | Pan | Shift-drag or middle-drag | Two-finger drag |
 | Draw a fold line (2D or 3D) | Click, move to set the angle, click, click the side; in 3D a drag orbits instead | Tap, move, tap, tap; in 3D a drag orbits instead |
 | Select a dye | Click its swatch | Tap its swatch |
