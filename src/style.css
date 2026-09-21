@@ -69,6 +69,10 @@ summary { cursor: pointer; font-weight: 600; padding: 4px 0; user-select: none; 
 .row input[type=number] { width: 62px; }
 .row input[type=range] { flex: 1; min-width: 80px; }
 .row .val { width: 44px; text-align: right; color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+.row.slide { display: grid; grid-template-columns: 104px minmax(0, 1fr) 46px; flex-wrap: nowrap; }
+.row.slide label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.slide input[type=range] { min-width: 0; width: 100%; margin: 0; }
+.row.slide .val { width: auto; white-space: nowrap; }
 button, select, input { font: inherit; color: var(--ink); background: #33333b; border: 1px solid #45454f; border-radius: 4px; padding: 3px 7px; }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -98,6 +102,9 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
 #help ul { padding-left: 18px; }
 #help li { margin: 4px 0; }
 #help b { color: var(--ink); font-weight: 600; }
+#help dl.ref { margin: 4px 0; }
+#help dl.ref dt { margin-top: 8px; font-weight: 600; color: var(--ink); }
+#help dl.ref dd { margin: 2px 0 0 0; }
 .native #help .help-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 
 /* Mobile: controls slide in over the views, views stack. */

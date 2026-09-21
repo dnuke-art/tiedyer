@@ -292,6 +292,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ..
   return e;
 }
 const row = (...children: (Node | string)[]) => el('div', { class: 'row' }, ...children);
+/** label, slider and value on one line, in fixed columns so every slider lines up */
+const sliderRow = (label: string, input: HTMLElement, val: HTMLElement) => el('div', { class: 'row slide' }, el('label', { title: label }, label), input, val);
 const btn = (label: string, onclick: () => void, cls = '') => el('button', { class: cls, onclick }, label);
 
 /** controls re-read their value from the plan when it is replaced (demos, Load, New) */
@@ -303,7 +305,7 @@ function slider(label: string, min: number, max: number, step: number, get: () =
   const input = el('input', { type: 'range', min, max, step, value: get() }) as HTMLInputElement;
   input.addEventListener('input', () => { set(parseFloat(input.value)); val.textContent = fmt(parseFloat(input.value)); });
   syncers.push(() => { input.value = String(get()); val.textContent = fmt(get()); });
-  return row(el('label', {}, label), input, val);
+  return sliderRow(label, input, val);
 }
 
 /** Slider whose position is logarithmic in the value. */
@@ -315,7 +317,7 @@ function logSlider(label: string, min: number, max: number, get: () => number, s
   input.addEventListener('input', () => { const v = Math.exp(lo + parseFloat(input.value) * (hi - lo)); set(v); val.textContent = fmt(v); });
   if (onChange) input.addEventListener('change', onChange);
   syncers.push(() => { input.value = String(toPos(get())); val.textContent = fmt(get()); });
-  return row(el('label', {}, label), input, val);
+  return sliderRow(label, input, val);
 }
 
 function numberInput(get: () => number, set: (v: number) => void, attrs: Attrs = {}): HTMLInputElement {
@@ -487,8 +489,7 @@ function buildSidebar(): void {
       slider('pinch cm', 0.5, 5, 0.25, () => plan.twist.pinch, (v) => { plan.twist.pinch = v; touched(); }),
       slider('friction', 0, 0.2, 0.005, () => plan.twist.friction, (v) => { plan.twist.friction = v; touched(); }, (v) => v.toFixed(3)),
       slider('pat flat cm', 0, 6, 0.25, () => plan.twist.flatten, (v) => { plan.twist.flatten = v; touched(); }),
-      row(btn('Run twist', () => rebuildTwist())),
-      el('div', { class: 'note' }, 'Pinch the centre, twist, release, pat flat. A particle cloth on a table with self-collision; the core grows as fabric wraps onto it. Runs a few seconds.'));
+      row(btn('Run twist', () => rebuildTwist())));
   (window as unknown as { refreshCentre: () => void }).refreshCentre = refreshCentre;
 
   const stepCounter = el('span', { class: 'val' }, '0');
@@ -514,7 +515,6 @@ function buildSidebar(): void {
         '×',
         numberInput(() => plan.H, (v) => { plan.H = v; reconfigure(); }, { min: 5, max: 300, step: 1 })),
       resRow,
-      el('div', { class: 'note' }, 'Changing the size keeps the fold list but the lines may no longer land where you meant.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Shape'),
@@ -537,7 +537,6 @@ function buildSidebar(): void {
         btn('Undo stroke', () => { plan.strokes.pop(); replay(); touched(); })),
       row(btn('Clear dye', () => { plan.strokes = []; replay(); touched(); }),
         btn('Clear bands', () => { plan.bands = []; pressChanged(); })),
-      el('div', { class: 'note' }, 'Soak = how much liquid you squirt, in layers: it fills the top layer and the excess wicks into the next. Amount = dye strength in that liquid. Hold the button still and the squirt keeps pouring: soak grows by "hold flow" × soak every second and the front moves down. Going over a wet spot again makes it darker, up to "build-up" extra squirts of dye; a held pour only goes deeper. Bands and clamps squeeze layers so they hold less and stop the front. Pick a cloth colour to start from a solid shirt, and the BL swatch to squirt bleach: it strips dye, fixed or not, wherever it reaches.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'Batch (diffusion)'),
@@ -553,7 +552,6 @@ function buildSidebar(): void {
       slider('sideways wick', 0, 1, 0.05, () => plan.params.lateral, (v) => { plan.params.lateral = v; replay(); touched(); }),
       slider('bleach power', 0, 0.3, 0.005, () => plan.params.bleach, (v) => { plan.params.bleach = v; touched(); }, (v) => v.toFixed(3)),
       slider('bleach fade', 0, 0.05, 0.001, () => plan.params.bleachDecay, (v) => { plan.params.bleachDecay = v; touched(); }, (v) => v.toFixed(3)),
-      el('div', { class: 'note' }, 'Fixing turns free dye into fixed dye up to the cloth capacity. Free dye keeps spreading; fixed dye stays. "Rinse" shows only fixed dye. Sideways wick = how much of a squirt spreads within a layer versus into the next. Bleach power = how fast bleach eats dye; bleach fade = how fast it goes off by itself.'),
     ),
     el('details', { open: true },
       el('summary', {}, 'View'),
@@ -575,7 +573,6 @@ function buildSidebar(): void {
       checkbox('Tint free bleach', () => view.showBleach, (v) => { view.showBleach = v; dirty = true; dirtyDye = true; }),
       slider('colour depth', 0.2, 4, 0.1, () => view.strength, (v) => { view.strength = v; dirty = true; dirtyDye = true; }, (v) => v.toFixed(1)),
     ),
-    el('div', { class: 'note' }, 'Keys: ', el('kbd', {}, 'space'), ' play/pause · ', el('kbd', {}, 'esc'), ' cancel fold line · ', el('kbd', {}, 'z'), ' undo stroke · ', el('kbd', {}, '?'), ' help'),
   );
   resSel.addEventListener('change', () => { plan.N = parseInt(resSel.value); reconfigure(); });
   refreshSwatches();
