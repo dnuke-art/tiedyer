@@ -699,6 +699,8 @@ function buildSidebar(): void {
 
 const helpDialog = document.getElementById('help') as HTMLDialogElement;
 function openHelp(): void { if (!helpDialog.open) helpDialog.showModal(); }
+// a link to the page with #help opens it straight away
+if (location.hash === '#help') openHelp();
 document.getElementById('help-close')!.addEventListener('click', () => helpDialog.close());
 // click on the backdrop closes it (the dialog element itself is the click target there)
 helpDialog.addEventListener('click', (ev) => { if (ev.target === helpDialog) helpDialog.close(); });
