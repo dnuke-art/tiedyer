@@ -147,10 +147,24 @@ export interface FaceIndex {
   Tinv: Mat[];
   /** faces sorted top-first */
   byZDesc: number[];
+  /** Layers of a folded stack mostly share their outline in the bundle, so faces are
+   *  grouped by folded polygon: outlineOf[face] is its group, and outlineRep[group] a
+   *  face with that outline. A point query tests each distinct outline once. */
+  outlineOf: Int32Array;
+  outlineRep: number[];
 }
 
 export function indexFaces(faces: Face[]): FaceIndex {
   const folded = faces.map(foldedPolygon);
+  const outlineOf = new Int32Array(faces.length);
+  const outlineRep: number[] = [];
+  const byKey = new Map<string, number>();
+  folded.forEach((poly, f) => {
+    const key = poly.map((q) => `${q.x.toFixed(4)},${q.y.toFixed(4)}`).sort().join(';');
+    let o = byKey.get(key);
+    if (o === undefined) { o = outlineRep.length; outlineRep.push(f); byKey.set(key, o); }
+    outlineOf[f] = o;
+  });
   return {
     faces,
     folded,
@@ -158,6 +172,8 @@ export function indexFaces(faces: Face[]): FaceIndex {
     flatBox: faces.map((f) => bbox(f.flat)),
     Tinv: faces.map((f) => invert(f.T)),
     byZDesc: faces.map((_, i) => i).sort((a, b) => faces[b].z - faces[a].z),
+    outlineOf,
+    outlineRep,
   };
 }
 
@@ -172,8 +188,15 @@ export function faceAtFlat(idx: FaceIndex, uv: Vec2, eps = 1e-7): number {
 /** All faces covering a folded point, top first. */
 export function facesAtFolded(idx: FaceIndex, q: Vec2, eps = 1e-7): number[] {
   const out: number[] = [];
+  // each distinct outline is tested once: 0 untested, 1 covers q, 2 does not
+  const hit = new Uint8Array(idx.outlineRep.length);
   for (const i of idx.byZDesc) {
-    if (bboxContains(idx.foldedBox[i], q, eps) && pointInConvexPolygon(idx.folded[i], q, eps)) out.push(i);
+    const o = idx.outlineOf[i];
+    if (hit[o] === 0) {
+      const r = idx.outlineRep[o];
+      hit[o] = bboxContains(idx.foldedBox[r], q, eps) && pointInConvexPolygon(idx.folded[r], q, eps) ? 1 : 2;
+    }
+    if (hit[o] === 1) out.push(i);
   }
   return out;
 }

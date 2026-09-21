@@ -33,6 +33,18 @@ const AREA_EPS = 1e-6;
 /** offset used to sample "just across" an edge, cm */
 const NUDGE = 1e-3;
 
+/** does the line through p along unit d pass through the polygon's interior (vertices on
+ *  both sides)? If not, clipping would leave the polygon whole and a zero-area sliver */
+function crosses(poly: Vec2[], p: Vec2, d: Vec2): boolean {
+  let pos = false, neg = false;
+  for (const q of poly) {
+    const s = d.x * (q.y - p.y) - d.y * (q.x - p.x);
+    if (s > 1e-9) pos = true; else if (s < -1e-9) neg = true;
+    if (pos && neg) return true;
+  }
+  return false;
+}
+
 export function foldMesh(faces: Face[], W: number, H: number, thickness: number): Mesh3 {
   const index = indexFaces(faces);
   const P = index.folded;
@@ -59,16 +71,30 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
     }
     return out;
   };
+  // Layers of a folded stack mostly share their outlines (index.outlineOf), so a depth
+  // query tests each distinct outline once and adds up how many faces below share it.
+  const { outlineOf, outlineRep: outlines } = index;
+  /** the faces below f, as distinct outlines with how many faces share each */
+  type Lower = { faces: number[]; reps: number[]; counts: number[] };
+  const groupLower = (fs: number[]): Lower => {
+    const count = new Map<number, number>();
+    for (const g of fs) count.set(outlineOf[g], (count.get(outlineOf[g]) || 0) + 1);
+    return { faces: fs, reps: [...count.keys()].map((o) => outlines[o]), counts: [...count.values()] };
+  };
   /** number of faces in `lower` covering bundle point q */
-  const depthAt = (lower: number[], q: Vec2): number => {
+  const depthAt = (lower: Lower, q: Vec2): number => {
     let n = 0;
-    for (const g of lower) if (bboxContains(index.foldedBox[g], q, 1e-9) && pointInConvexPolygon(P[g], q, 1e-9)) n++;
+    const { reps, counts } = lower;
+    for (let i = 0; i < reps.length; i++) {
+      const g = reps[i];
+      if (bboxContains(index.foldedBox[g], q, 1e-9) && pointInConvexPolygon(P[g], q, 1e-9)) n += counts[i];
+    }
     return n;
   };
-  const lowerCache = new Map<number, number[]>();
-  const lower = (f: number): number[] => {
+  const lowerCache = new Map<number, Lower>();
+  const lower = (f: number): Lower => {
     let l = lowerCache.get(f);
-    if (!l) { l = lowerOf(f); lowerCache.set(f, l); }
+    if (!l) { l = groupLower(lowerOf(f)); lowerCache.set(f, l); }
     return l;
   };
 
@@ -77,16 +103,26 @@ export function foldMesh(faces: Face[], W: number, H: number, thickness: number)
     if (poly.length < 3) continue;
     const Tinv = index.Tinv[f];
     const low = lower(f);
-    // split the face by every lower face's edge lines
+    // split the face by every lower face's edge lines. In a folded stack most faces
+    // coincide, so their edges fall on a few distinct lines: split once per line, and
+    // clip only the cells a line actually crosses.
     let cells: Vec2[][] = [poly];
-    for (const g of low) {
+    const seenLines = new Set<string>();
+    for (const g of low.reps) {
       const pg = P[g];
       for (let e = 0; e < pg.length; e++) {
         const a = pg[e], b = pg[(e + 1) % pg.length];
         const d = normalize(sub(b, a));
         if (!isFinite(d.x)) continue;
+        // the line, whichever way the edge runs: unit direction with a fixed sign, and offset
+        const sg = d.x > 1e-12 || (Math.abs(d.x) <= 1e-12 && d.y > 0) ? 1 : -1;
+        const ux = d.x * sg, uy = d.y * sg, off = ux * a.y - uy * a.x;
+        const key = `${ux.toFixed(6)},${uy.toFixed(6)},${off.toFixed(5)}`;
+        if (seenLines.has(key)) continue;
+        seenLines.add(key);
         const next: Vec2[][] = [];
         for (const c of cells) {
+          if (!crosses(c, a, d)) { next.push(c); continue; }
           const k = clipPolygon(c, a, d, 1), m = clipPolygon(c, a, d, -1);
           if (k.length >= 3 && Math.abs(polygonArea(k)) > AREA_EPS) next.push(k);
           if (m.length >= 3 && Math.abs(polygonArea(m)) > AREA_EPS) next.push(m);
