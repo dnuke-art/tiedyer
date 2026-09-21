@@ -1,1 +1,25 @@
-First release.
+A roomier, simpler layout, especially on iPhone.
+
+MORE ROOM FOR THE CLOTH
+• The controls are a drawer: tap ☰ to slide them in and out, so the two views always have the whole screen
+• The views run edge to edge, and the status bar along the bottom is gone
+• The folded and unfolded views stay the same size when you rotate the phone; drag the bar between them (or use Split under View) to give one more room
+• The view titles are gone and every slider sits on one line with its label
+• The explanations moved out of the panel into Help, which now has a guide to every control
+
+SIMPLER CONTROLS
+• One switch on the bundle view chooses what a touch does: Dye, Band, or Orbit (Inspect in 2D)
+• Kikko, Spiral and Bleach are in a Presets menu
+• Image and 3D model export have their own Export section at the bottom of the panel
+• The fold list folds away under a Folds heading
+• Tap 3D again to fit the bundle back in view; pinch or scroll to zoom
+
+RUBBER BANDS THAT WORK LIKE REAL ONES
+• Tie a band the way you draw a fold: tap a point, turn it to the angle you want, tap again
+• A band goes straight across the whole bundle and squeezes every layer, leaving a clean line in the pattern
+• Band width and Undo band are new; bands show on the 3D model where they cross it
+
+ALSO
+• The cloth colour and its strength (now called Base dye) are under Cloth
+• A small readout in the corner of the bundle shows the layer count, how deep the last squirt reached, and what is under your finger
+• The simulation runs on the GPU on more devices

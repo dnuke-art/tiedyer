@@ -8,16 +8,16 @@ FOLD OR TWIST
 DYE THAT BEHAVES LIKE DYE
 • Squirt from the top or the bottom of the bundle, with a soak depth in layers
 • Dye wicks through the stack and along the cloth, then diffuses and fixes
-• Rubber bands and clamps squeeze the layers and stop the dye front
+• Tie rubber bands straight across the bundle; they squeeze every layer and stop the dye front
 
 SEE IT BOTH WAYS
 • The folded bundle and the unfolded pattern update together
 • Touch a point on the pattern to see where it sits in the bundle, and the other way round
-• A true 3D view of the bundle you can orbit and pinch, with bands and squirts from any side
+• A true 3D view of the bundle you can orbit and pinch, and dye from any side
 
 TAKE IT TO THE SINK
 • Save a plan and reload it later
-• Export the pattern as an image through the share sheet
+• Export the pattern as an image, or the bundle as a 3D model, through the share sheet
 • Everything runs on the device; no account, no network, nothing collected
 
-Start from the built-in Kikko and Spiral demos, then change a fold, move a band, or pick a different colour and see what happens before you commit real cloth and real dye.
+Start from the built-in Kikko, Spiral and Bleach presets, then change a fold, move a band, or pick a different colour and see what happens before you commit real cloth and real dye.
