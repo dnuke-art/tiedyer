@@ -8,7 +8,7 @@ MORE ROOM FOR THE CLOTH
 • The explanations moved out of the panel into Help, which now has a guide to every control
 
 SIMPLER CONTROLS
-• One switch on the bundle view chooses what a touch does: Dye, Band, or Orbit (Inspect in 2D), with the current dye colour under it; tap the colour to change it
+• One switch on the bundle view chooses what a touch does: Dye, Band, Fold (draw your own fold line) or Orbit (Inspect in 2D), with the current dye colour under it; tap the colour to change it
 • A bigger ☰ button, easier to find and tap
 • Kikko, Spiral and Bleach are in a Presets menu
 • Image and 3D model export have their own Export section at the bottom of the panel

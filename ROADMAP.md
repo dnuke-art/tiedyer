@@ -21,7 +21,7 @@ waits here.
 - Relaunching after working on a twist re-runs the cloth simulation for a few seconds,
   because the autosave keeps the twist's settings, not the twisted cloth. Save the
   finished cloth with the plan so it reopens instantly.
-- Tool hints only exist as tooltips on the Dye / Band / Orbit switch, so on a phone,
+- Tool hints only exist as tooltips on the Dye / Band / Fold / Orbit switch, so on a phone,
   which has no hover, they never show.
 - In the Batch section the step counter (`t 150`) wraps onto its own line on a phone.
 - A stroke that starts at the very bottom of the screen can be taken by iOS as the
@@ -30,12 +30,6 @@ waits here.
 
 **Control panel and modes**
 
-- Fold becomes a fourth choice in the mode switch on the bundle view (Dye / Band /
-  Fold / Orbit), replacing the panel's "Draw fold line" button: tap a point, set the
-  angle, tap the side that moves, in 2D and 3D, the same as now.
-- The Shape section still has "Fold / Twist" (the kind of shape) next to fold tools.
-  The zigzag button is renamed and the ready-made folds are grouped under "Regular
-  folds" (2026-09-21); moving Draw fold line to the mode switch would finish it.
 - A time slider on the bundle view in place of Play: scrub along the diffusion
   timeline instead of running it. Needs a decision on how: store snapshots as the
   batch runs (memory: 240² texels × free, fixed and bleach per step kept), or re-run

@@ -1,7 +1,7 @@
 Tie Dyer is a tie-dye simulator. Fold or twist a piece of cloth, put on rubber bands, squirt dye where you want it, and watch the finished pattern appear on the unfolded cloth. It is a planning tool for real shirts, not a colouring game: the folds are real geometry and the dye really soaks through the layers.
 
 FOLD OR TWIST
-• Accordion pleats, zigzag and diagonal folds, or draw your own fold lines
+• Accordion pleats, zigzag and diagonal folds, or draw your own fold lines right on the bundle
 • Spiral mode twists the cloth with a cloth simulation, the way you do it on a table
 • Every layer is tracked, so you can see exactly which layers a squirt reaches
 

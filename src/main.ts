@@ -102,16 +102,18 @@ function setThree(on: boolean): void {
 v2dBtn.addEventListener('click', () => setThree(false));
 // tapping 3D while already in 3D fits the bundle back in view
 v3dBtn.addEventListener('click', () => { if (view.three) { view3d?.frame(); dirty = true; } else setThree(true); });
-// Mode switch on the bundle view: Dye (a drag squirts), Band (taps tie a band, a drag
-// orbits in 3D) or the look mode, which orbits in 3D and inspects the layers in 2D.
+// Mode switch on the bundle view: Dye (a drag squirts), Band (a drag ties a band), Fold
+// (taps draw a fold line; flat folds only) or the look mode, which orbits in 3D and inspects the layers in 2D.
 // Right/middle drag, modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
 const modeBtns = {
   dye: document.getElementById('modeDye') as HTMLButtonElement,
   band: document.getElementById('modeBand') as HTMLButtonElement,
+  fold: document.getElementById('modeFold') as HTMLButtonElement,
   look: document.getElementById('modeLook') as HTMLButtonElement,
 };
 modeBtns.dye.addEventListener('click', () => setTool('dye'));
 modeBtns.band.addEventListener('click', () => setTool('band'));
+modeBtns.fold.addEventListener('click', () => setTool('fold'));
 modeBtns.look.addEventListener('click', () => setTool(is3d() ? 'orbit' : 'inspect'));
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
@@ -419,7 +421,7 @@ const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
   band: 'press on the bundle, drag to set the angle, release to tie a band around it · esc cancels',
-  fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
+  fold: 'tap two points for the crease, then tap the side that folds over (shift-click = fold under) · in 3D, tap the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
   orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · choose Dye or Band to work on it',
 };
@@ -452,6 +454,9 @@ function refreshModeUI(): void {
   resRow.hidden = plan.mode !== 'fold';
   thickRow.hidden = plan.mode !== 'fold';
   for (const [k, b] of Object.entries(modeButtons)) b.classList.toggle('on', k === plan.mode);
+  // fold lines only exist for flat folds; a twist has no Fold mode
+  modeBtns.fold.hidden = plan.mode !== 'fold';
+  if (plan.mode !== 'fold' && tool === 'fold') setTool('dye');
 }
 
 const CURSOR: Record<Tool, string> = { inspect: 'help', dye: 'crosshair', band: 'crosshair', fold: 'crosshair', centre: 'crosshair', orbit: 'grab' };
@@ -462,7 +467,7 @@ function setTool(t: Tool): void {
   bandDraft = [];
   dirty = true;
   modeBtns.look.textContent = is3d() ? 'Orbit' : 'Inspect';
-  const cur = t === 'dye' || t === 'band' ? t : t === 'orbit' || t === 'inspect' ? 'look' : null;
+  const cur = t === 'dye' || t === 'band' || t === 'fold' ? t : t === 'orbit' || t === 'inspect' ? 'look' : null;
   for (const [k, b] of Object.entries(modeBtns)) {
     b.classList.toggle('on', k === cur);
     b.setAttribute('aria-checked', String(k === cur));
@@ -560,7 +565,6 @@ function buildSidebar(): void {
   const partSel = el('select', {}, ...[61, 81, 101, 121, 161].map((n) => el('option', { value: n }, `${n}² particles`))) as HTMLSelectElement;
   partSel.value = String([61, 81, 101, 121, 161].includes(plan.N) ? plan.N : 101);
   partSel.addEventListener('change', () => { plan.N = parseInt(partSel.value); reconfigure(); });
-  toolButtons.fold = btn('Draw fold line', () => setTool('fold'));
   const cx = numberInput(() => plan.twist.c.x, (v) => { plan.twist.c.x = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const refreshCentre = () => { cx.value = String(plan.twist.c.x); cy.value = String(plan.twist.c.y); };
@@ -581,7 +585,6 @@ function buildSidebar(): void {
         row(el('label', {}, 'diagonal'),
           btn('╲', () => addFoldsSequential((f) => [diagonalFold(f, 'main')])),
           btn('╱', () => addFoldsSequential((f) => [diagonalFold(f, 'anti')])))),
-      row(toolButtons.fold),
       row(btn('Undo fold', () => { plan.folds.pop(); rebuildGeometry(); }),
         btn('Clear folds', () => { plan.folds = []; rebuildGeometry(); })),
       foldListBox);
