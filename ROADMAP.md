@@ -34,11 +34,9 @@ waits here.
 - Fold becomes a fourth choice in the mode switch on the bundle view (Dye / Band /
   Fold / Orbit), replacing the panel's "Draw fold line" button: tap a point, set the
   angle, tap the side that moves, in 2D and 3D, the same as now.
-- The zigzag row's "Fold" button is easy to mistake for a fold-in-half: it applies
-  zigzag triangle folds along the strip (axis and triangle shape from the two menus
-  beside it). Rename it ("Zigzag") and look at the Shape section as a whole. Its
-  "Fold / Twist" pair picks the kind of shape, so there are two different "Fold"
-  buttons in one section.
+- The Shape section still has "Fold / Twist" (the kind of shape) next to fold tools.
+  The zigzag button is renamed and the ready-made folds are grouped under "Regular
+  folds" (2026-09-21); moving Draw fold line to the mode switch would finish it.
 - A time slider on the bundle view in place of Play: scrub along the diffusion
   timeline instead of running it. Needs a decision on how: store snapshots as the
   batch runs (memory: 240² texels × free, fixed and bleach per step kept), or re-run

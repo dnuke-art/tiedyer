@@ -536,13 +536,13 @@ function refreshSwatches(): void {
 const playBtn = btn('▶ Play', () => setPlaying(!playing));
 
 function buildSidebar(): void {
-  const pleats = numberInput(() => 6, () => {}, { min: 2, max: 40, step: 1 }) as HTMLInputElement;
+  const pleats = numberInput(() => 6, () => {}, { min: 2, max: 40, step: 1, title: 'number of pleats' }) as HTMLInputElement;
   pleats.value = '6';
-  const zigAxis = el('select', {}, el('option', { value: 'y' }, 'strip along y'), el('option', { value: 'x' }, 'strip along x')) as HTMLSelectElement;
-  const zigStyle = el('select', {},
-    el('option', { value: 'equilateral' }, 'equilateral 60°'),
-    el('option', { value: 'right' }, 'right 45°'),
-    el('option', { value: 'square' }, 'squares'),
+  const zigAxis = el('select', { title: 'which way the strip runs' }, el('option', { value: 'y' }, 'along y'), el('option', { value: 'x' }, 'along x')) as HTMLSelectElement;
+  const zigStyle = el('select', { title: 'triangle shape: equilateral 60°, right-angled 45°, or squares' },
+    el('option', { value: 'equilateral' }, '60°'),
+    el('option', { value: 'right' }, '45°'),
+    el('option', { value: 'square' }, 'square'),
   ) as HTMLSelectElement;
   const resSel = el('select', {}, ...[120, 180, 240, 320, 400, 480, 640, 800].map((n) => el('option', { value: n }, `${n} texels`))) as HTMLSelectElement;
   resSel.value = String(plan.N);
@@ -558,15 +558,19 @@ function buildSidebar(): void {
   styleSel.addEventListener('change', () => { if (view3d) view3d.style = styleSel.value as 'mesh' | 'splat'; dirty = true; });
   modeButtons = { fold: btn('Fold', () => setMode('fold')), twist: btn('Twist', () => setMode('twist')) };
   resRow = row(el('label', {}, 'resolution'), resSel);
+  // the ready-made fold patterns, folded away under their own heading; your own fold
+  // lines, undo and the fold list stay in view
   foldControls = el('div', {},
-      row(btn('Accordion X', () => addFoldsSequential((f) => accordionFolds(f, 'x', parseInt(pleats.value)))),
-        btn('Accordion Y', () => addFoldsSequential((f) => accordionFolds(f, 'y', parseInt(pleats.value)))),
-        el('label', {}, 'pleats'), pleats),
-      row(el('label', {}, 'zigzag'), zigAxis, zigStyle,
-        btn('Fold', () => addFoldsSequential((f) => zigzagFolds(f, zigAxis.value as Axis, zigStyle.value as 'equilateral' | 'right' | 'square')))),
-      row(btn('Diagonal ╲', () => addFoldsSequential((f) => [diagonalFold(f, 'main')])),
-        btn('Diagonal ╱', () => addFoldsSequential((f) => [diagonalFold(f, 'anti')])),
-        toolButtons.fold),
+      el('details', { class: 'sub' }, el('summary', {}, 'Regular folds'),
+        row(el('label', {}, 'accordion'), pleats,
+          btn('X', () => addFoldsSequential((f) => accordionFolds(f, 'x', parseInt(pleats.value)))),
+          btn('Y', () => addFoldsSequential((f) => accordionFolds(f, 'y', parseInt(pleats.value))))),
+        row(btn('Zigzag', () => addFoldsSequential((f) => zigzagFolds(f, zigAxis.value as Axis, zigStyle.value as 'equilateral' | 'right' | 'square'))),
+          zigAxis, zigStyle),
+        row(el('label', {}, 'diagonal'),
+          btn('╲', () => addFoldsSequential((f) => [diagonalFold(f, 'main')])),
+          btn('╱', () => addFoldsSequential((f) => [diagonalFold(f, 'anti')])))),
+      row(toolButtons.fold),
       row(btn('Undo fold', () => { plan.folds.pop(); rebuildGeometry(); }),
         btn('Clear folds', () => { plan.folds = []; rebuildGeometry(); })),
       foldListBox);
