@@ -50,13 +50,17 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .hud .seg button + button { margin-top: -1px; }
 /* neighbours overlap by 1px to share a border; lift the hovered/active one so its outline is not clipped */
 .hud .seg button:hover, .hud .seg button.on { position: relative; z-index: 1; }
-/* the paint toggle: a rounded button of its own, set apart from the 2D/3D switch;
-   filled in the tool's colour when a drag paints, outlined when it orbits or inspects */
-.hud .paint-toggle { pointer-events: auto; margin-top: 8px; width: 56px; padding: 0; line-height: 26px; border-radius: 13px; font-size: 12px; font-weight: 700; background: rgba(27,27,31,0.8); box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
-.hud .paint-toggle.tool-dye { border-color: #e0007f; color: #ff5fb4; }
-.hud .paint-toggle.tool-band { border-color: #d7d5cf; color: #d7d5cf; }
-.hud .paint-toggle.on.tool-dye { background: #e0007f; color: #fff; }
-.hud .paint-toggle.on.tool-band { background: #d7d5cf; color: #111; }
+/* the mode switch: set apart from the 2D/3D switch, rounded, and lit in the mode's own
+   colour (dye magenta, band the colour of a rubber band, look blue) */
+.hud .modes { pointer-events: auto; margin-top: 8px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
+.hud .modes button { width: 60px; padding: 0; line-height: 26px; border-radius: 0; font-size: 12px; font-weight: 600; background: rgba(27,27,31,0.82); color: var(--ink); }
+.hud .modes button + button { margin-top: -1px; }
+.hud .modes button:first-child { border-radius: 14px 14px 0 0; }
+.hud .modes button:last-child { border-radius: 0 0 14px 14px; }
+.hud .modes button:hover, .hud .modes button.on { position: relative; z-index: 1; }
+.hud .modes .tool-dye.on { background: #e0007f; border-color: #e0007f; color: #fff; }
+.hud .modes .tool-band.on { background: #d7d5cf; border-color: #d7d5cf; color: #111; }
+.hud .modes .tool-look.on { background: #4c6fff; border-color: #4c6fff; color: #fff; }
 #status { position: absolute; right: 6px; bottom: 6px; z-index: 2; max-width: min(240px, calc(100% - 12px)); pointer-events: none; padding: 4px 7px; border-radius: 4px; background: rgba(27,27,31,0.72); color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
 #status:empty { display: none; }
 .stack { position: relative; flex: 1; min-height: 0; }
@@ -140,7 +144,7 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
   .views { padding: 0; }
   canvas { border-radius: 0; }
   .hud .seg button { line-height: 30px; }
-  .hud .paint-toggle { line-height: 32px; border-radius: 16px; width: 60px; }
+  .hud .modes button { line-height: 32px; width: 64px; }
   #status { font-size: 10px; max-width: min(200px, calc(100% - 12px)); }
 }
 

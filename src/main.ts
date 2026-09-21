@@ -83,11 +83,10 @@ function setThree(on: boolean): void {
   v3dBtn.classList.toggle('on', view.three);
   try { localStorage.setItem('tiedyer.view3d', view.three ? '1' : '0'); } catch { /* ignore */ }
   if (view.three && view3d && bundle) { sync3d(bundle.px, bundle.py, bundle.pz, false); }
-  // in 3D a drag squirts, so start out orbiting; the band tool places points with taps and
-  // orbits on a drag already, so it stays
-  if (view.three && tool === 'dye') setTool('orbit');
-  if (!view.three && tool === 'orbit') setTool('dye');
-  else setTool(tool); // refresh the hint for the new view
+  // the look mode is orbit in 3D and inspect in 2D; dye and band carry over
+  if (view.three && tool === 'inspect') setTool('orbit');
+  else if (!view.three && tool === 'orbit') setTool('inspect');
+  else setTool(tool); // refresh the labels and hint for the new view
   dirty = true;
   lastFlatKey = '';
   last3dKey = '';
@@ -95,17 +94,20 @@ function setThree(on: boolean): void {
 v2dBtn.addEventListener('click', () => setThree(false));
 // tapping 3D while already in 3D fits the bundle back in view
 v3dBtn.addEventListener('click', () => { if (view.three) { view3d?.frame(); dirty = true; } else setThree(true); });
-// Paint toggle, labelled with the last Dye/Band tool: on, a plain drag paints with it and
-// never orbits; off, a plain drag orbits in 3D and inspects in 2D. Right/middle drag,
-// modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
-const paintBtn = document.getElementById('paintToggle') as HTMLButtonElement;
-const isPaint = (t: Tool) => t === 'dye' || t === 'band';
-paintBtn.addEventListener('click', () => setTool(isPaint(tool) ? (is3d() ? 'orbit' : 'inspect') : paintTool));
+// Mode switch on the bundle view: Dye (a drag squirts), Band (taps tie a band, a drag
+// orbits in 3D) or the look mode, which orbits in 3D and inspects the layers in 2D.
+// Right/middle drag, modifiers and the wheel always orbit/pan/zoom; two fingers pan and pinch-zoom.
+const modeBtns = {
+  dye: document.getElementById('modeDye') as HTMLButtonElement,
+  band: document.getElementById('modeBand') as HTMLButtonElement,
+  look: document.getElementById('modeLook') as HTMLButtonElement,
+};
+modeBtns.dye.addEventListener('click', () => setTool('dye'));
+modeBtns.band.addEventListener('click', () => setTool('band'));
+modeBtns.look.addEventListener('click', () => setTool(is3d() ? 'orbit' : 'inspect'));
 
 type Tool = 'inspect' | 'dye' | 'band' | 'fold' | 'centre' | 'orbit';
 let tool: Tool = 'dye';
-/** the last paint tool (dye/band) chosen, restored when orbit is toggled off */
-let paintTool: 'dye' | 'band' = 'dye';
 /** r: squirt radius, cm; bandW: width of a rubber band, cm */
 const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1, bandW: 1 };
 
@@ -402,7 +404,7 @@ const HINTS: Record<Tool, string> = {
   band: 'tap a point, move to set the angle, tap again to tie a band around the bundle · esc cancels',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
-  orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · turn on Dye to dye or band',
+  orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · choose Dye or Band to work on it',
 };
 let foldControls: HTMLElement;
 let twistControls: HTMLElement;
@@ -438,17 +440,19 @@ function refreshModeUI(): void {
 const CURSOR: Record<Tool, string> = { inspect: 'help', dye: 'crosshair', band: 'crosshair', fold: 'crosshair', centre: 'crosshair', orbit: 'grab' };
 
 function setTool(t: Tool): void {
-  if (t === 'dye' || t === 'band') paintTool = t;
   tool = t;
   foldDraft = [];
   bandDraft = [];
   dirty = true;
-  paintBtn.textContent = paintTool === 'band' ? 'Band' : 'Dye';
-  paintBtn.className = `paint-toggle tool-${paintTool}${isPaint(t) ? ' on' : ''}`;
-  paintBtn.setAttribute('aria-pressed', String(isPaint(t)));
+  modeBtns.look.textContent = is3d() ? 'Orbit' : 'Inspect';
+  const cur = t === 'dye' || t === 'band' ? t : t === 'orbit' || t === 'inspect' ? 'look' : null;
+  for (const [k, b] of Object.entries(modeBtns)) {
+    b.classList.toggle('on', k === cur);
+    b.setAttribute('aria-checked', String(k === cur));
+    b.title = k === cur ? HINTS[t] + (is3d() && t === 'dye' ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '') : '';
+  }
   foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  paintBtn.title = HINTS[t] + (is3d() && t === 'dye' ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -516,8 +520,6 @@ function buildSidebar(): void {
   const partSel = el('select', {}, ...[61, 81, 101, 121, 161].map((n) => el('option', { value: n }, `${n}² particles`))) as HTMLSelectElement;
   partSel.value = String([61, 81, 101, 121, 161].includes(plan.N) ? plan.N : 101);
   partSel.addEventListener('change', () => { plan.N = parseInt(partSel.value); reconfigure(); });
-  toolButtons.dye = btn('Dye', () => setTool('dye'));
-  toolButtons.band = btn('Band', () => setTool('band'));
   toolButtons.fold = btn('Draw fold line', () => setTool('fold'));
   const cx = numberInput(() => plan.twist.c.x, (v) => { plan.twist.c.x = v; touched(); }, { min: 0, max: 300, step: 0.5 });
   const cy = numberInput(() => plan.twist.c.y, (v) => { plan.twist.c.y = v; touched(); }, { min: 0, max: 300, step: 0.5 });
@@ -596,7 +598,6 @@ function buildSidebar(): void {
     ),
     el('details', { open: true },
       el('summary', {}, 'Dye & bindings'),
-      el('div', { class: 'row tools' }, toolButtons.dye, toolButtons.band),
       swatchWrap,
       slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
