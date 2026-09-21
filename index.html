@@ -30,6 +30,8 @@
                 <div class="modes" id="modes" role="radiogroup" aria-label="What a touch does">
                   <button id="modeDye" class="tool-dye" role="radio">Dye</button><button id="modeBand" class="tool-band" role="radio">Band</button><button id="modeLook" class="tool-look" role="radio">Orbit</button>
                 </div>
+                <!-- the dye being squirted; a tap changes its colour -->
+                <div class="swatch cur-swatch" id="curSwatch" title="Current dye · tap to change its colour"><input type="color" id="curColor" tabindex="-1" aria-label="Current dye colour"></div>
               </div>
               <div id="status"></div>
             </div>

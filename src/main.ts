@@ -475,8 +475,30 @@ function refreshFoldList(): void {
 const swatchWrap = el('div', { class: 'swatches' });
 const baseWrap = el('div', { class: 'swatches' });
 const baseDepth = slider('base dye', 0.1, 1, 0.05, () => plan.baseAmount, (v) => { plan.baseAmount = v; replay(); touched(); });
+/** the current dye in the bundle view's corner: its colour, or the bleach stripes; a tap
+ *  on it opens the colour picker for that dye (the input takes the tap, as on the panel) */
+const curSwatch = document.getElementById('curSwatch')!;
+const curColor = document.getElementById('curColor') as HTMLInputElement;
+curColor.addEventListener('input', () => {
+  const d = plan.dyes[brush.dye];
+  if (!d) return;
+  d.color = curColor.value;
+  curSwatch.style.background = d.color;
+  dirty = true; dirtyDye = true; touched();
+});
+curColor.addEventListener('change', () => refreshSwatches());
+function refreshCurSwatch(): void {
+  const d = brush.dye === BLEACH ? null : plan.dyes[brush.dye];
+  curSwatch.classList.toggle('bleach', !d);
+  curSwatch.classList.toggle('on', !!d); // 'on' lets the colour input take the tap
+  curSwatch.style.background = d ? d.color : '';
+  curSwatch.title = d ? `${d.name} · tap to change its colour` : 'Bleach';
+  if (d) curColor.value = d.color;
+}
+
 function refreshSwatches(): void {
   syncControls();
+  refreshCurSwatch();
   const bleach = el('div', { class: 'swatch bleach' + (brush.dye === BLEACH ? ' on' : ''), title: 'bleach: removes dye instead of adding it' }, 'BL');
   bleach.addEventListener('click', () => { brush.dye = BLEACH; refreshSwatches(); });
   swatchWrap.replaceChildren(

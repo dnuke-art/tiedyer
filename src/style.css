@@ -60,6 +60,8 @@ main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .hud .modes button:hover, .hud .modes button.on { position: relative; z-index: 1; }
 /* both switches one width, wide enough for "Inspect" */
 .hud .seg button, .hud .modes button { width: 52px; }
+/* the current dye under the switches; its colour input takes the tap (see .swatch.on) */
+.hud .cur-swatch { pointer-events: auto; margin-top: 8px; width: 52px; height: 26px; border: 1px solid rgba(255,255,255,0.55); box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
 #status { position: absolute; right: 6px; bottom: 6px; z-index: 2; max-width: min(240px, calc(100% - 12px)); pointer-events: none; padding: 4px 7px; border-radius: 4px; background: rgba(27,27,31,0.72); color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; }
 #status:empty { display: none; }
 .stack { position: relative; flex: 1; min-height: 0; }
@@ -148,6 +150,7 @@ kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4
   .hud .seg button { line-height: 30px; }
   .hud .modes button { line-height: 30px; }
   .hud .seg button, .hud .modes button { width: 56px; }
+  .hud .cur-swatch { width: 56px; height: 30px; }
   #status { font-size: 10px; max-width: min(200px, calc(100% - 12px)); }
 }
 
