@@ -100,8 +100,11 @@ button.small { padding: 1px 6px; font-size: 12px; }
 .swatch.bleach { background: repeating-linear-gradient(135deg, #f6f6f4 0 5px, #c9d6dc 5px 10px); display: flex; align-items: center; justify-content: center; color: #4a5a63; font-size: 11px; font-weight: 600; }
 .swatch.base { width: 26px; height: 22px; }
 .swatch.white { background: #f6f6f4; }
-/* the colour input only exists to open the picker; the swatch itself takes the clicks */
+/* the colour input only exists to open the picker. On an unselected swatch the swatch
+   takes the tap (it selects the dye); on the selected one the tap lands on the input
+   itself, so the browser opens its own picker (iOS will not open it from script) */
 .swatch input[type=color] { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.swatch.on input[type=color] { pointer-events: auto; cursor: pointer; }
 /* a section inside a section: no rule above it, a lighter heading */
 details.sub { border-top: 0; padding: 2px 0; }
 details.sub summary { font-weight: 400; color: var(--muted); padding: 2px 0; }

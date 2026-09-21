@@ -486,8 +486,9 @@ function refreshSwatches(): void {
       const sw = el('div', { class: 'swatch' + (k === brush.dye ? ' on' : ''), title: `${d.name} · click again to change the colour`, style: `background:${d.color}` }, color);
       color.addEventListener('input', () => { d.color = color.value; sw.style.background = d.color; dirty = true; dirtyDye = true; touched(); });
       color.addEventListener('change', () => refreshSwatches()); // picker closed: cloth swatches pick up the new colour
-      sw.addEventListener('click', () => {
+      sw.addEventListener('click', (ev) => {
         if (brush.dye !== k) { brush.dye = k; refreshSwatches(); return; }
+        if (ev.target === color) return; // a tap on the input itself: the browser opens the picker
         if (typeof color.showPicker === 'function') { try { color.showPicker(); return; } catch { /* fall through */ } }
         color.click();
       });
