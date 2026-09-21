@@ -339,7 +339,8 @@ function checkbox(label: string, get: () => boolean, set: (v: boolean) => void):
 
 const sideEl = document.getElementById('side')!;
 const toolButtons: Record<Tool, HTMLButtonElement> = {} as never;
-const toolHint = document.getElementById('tool-hint')!;
+/** the GitHub link, kept from the page and moved into the panel title */
+const ghLink = sideEl.querySelector('a.gh');
 const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
@@ -394,7 +395,7 @@ function setTool(t: Tool): void {
   chip.className = `chip mode-${t}`;
   foldedCanvas.style.cursor = CURSOR[t];
   for (const [k, b] of Object.entries(toolButtons)) b.classList.toggle('on', k === t);
-  toolHint.textContent = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
+  chip.title = HINTS[t] + (is3d() && isPaint(t) ? ' · right-drag to orbit · two fingers pan and pinch-zoom' : '');
 }
 
 const foldList = el('ol', { class: 'folds' });
@@ -496,7 +497,7 @@ function buildSidebar(): void {
   setInterval(() => { stepCounter.textContent = String(sim.t); }, 250);
 
   sideEl.replaceChildren(
-    el('h1', {}, 'tiedyer', el('small', {}, 'fold · bind · dye · unfold')),
+    el('h1', {}, 'tiedyer', ...(ghLink ? [ghLink] : [])),
     row(
       btn('New', () => { plan = defaultPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); }),
       btn('Kikko', () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); }),
