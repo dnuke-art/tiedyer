@@ -41,7 +41,11 @@ const sim = new Sim(plan);
 function isFold(b: FlatFoldBundle | ClothBundle | null): b is FlatFoldBundle { return !!b && 'faces' in b; }
 function isCloth(b: FlatFoldBundle | ClothBundle | null): b is ClothBundle { return !!b && 'cloth' in b; }
 
-if (isNative()) document.body.classList.add('native');
+if (isNative()) {
+  document.body.classList.add('native');
+  // the app never zooms the page as a whole (the website keeps pinch-zoom for accessibility)
+  document.querySelector('meta[name=viewport]')?.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+}
 const flatCanvas = document.getElementById('flat') as HTMLCanvasElement;
 const foldedCanvas = document.getElementById('folded') as HTMLCanvasElement;
 const folded3dCanvas = document.getElementById('folded3d') as HTMLCanvasElement;

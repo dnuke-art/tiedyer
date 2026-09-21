@@ -11,6 +11,8 @@
   background: var(--bg);
 }
 * { box-sizing: border-box; }
+/* no double-tap zoom anywhere (a quick double tap in the panel zoomed the page) */
+html { touch-action: manipulation; }
 body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; }
 #app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 /* The control panel is a drawer over the views at every size, so the views always
