@@ -25,8 +25,6 @@ waits here.
   which has no hover, they never show.
 - In the Batch section the step counter (`t 150`) wraps onto its own line on a phone.
 - The panel title says "tiedyer"; the App Store name and Help say "Tie Dyer".
-- Double-clicking the divider resets the split to 50/50, but there is no touch
-  equivalent (the Split slider under View is the only way on a phone).
 - A stroke that starts at the very bottom of the screen can be taken by iOS as the
   home swipe, now that the views run to the edge. If that bites, defer the system
   gesture there (`preferredScreenEdgesDeferringSystemGestures` in the iOS shell).

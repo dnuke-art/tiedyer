@@ -658,7 +658,6 @@ function buildSidebar(): void {
     el('details', { open: true },
       el('summary', {}, 'View'),
       row(el('label', {}, '3D style'), styleSel),
-      slider('split', SPLIT_MIN, SPLIT_MAX, 0.01, () => split, setSplit, (v) => `${Math.round(v * 100)}%`),
       (thickRow = logSlider('layer height cm', 0.01, 1, () => plan.thickness, setThickness, (v) => v.toFixed(2), () => { rebuildGeometry(); touched(); })),
       checkbox('Rinse (show fixed dye only)', () => view.fixedOnly, (v) => { view.fixedOnly = v; dirty = true; dirtyDye = true; }),
       checkbox('View & paint underside (2D)', () => view.flip, (v) => { view.flip = v; dirty = true; }),
@@ -991,12 +990,15 @@ new ResizeObserver(() => {
   viewsEl.classList.toggle('cols', cols);
   dividerEl.setAttribute('aria-orientation', cols ? 'horizontal' : 'vertical');
 }).observe(viewsEl);
-let splitDrag: { start: number; total: number } | null = null;
+let splitDrag: { start: number; total: number; x?: number; y?: number } | null = null;
+/** when the divider was last tapped without dragging, for the double tap that evens the split */
+let lastDividerTap = 0;
 dividerEl.addEventListener('pointerdown', (ev) => {
   ev.preventDefault();
   const cols = viewsEl.classList.contains('cols');
   const a = flatViewEl.getBoundingClientRect(), b = foldedViewEl.getBoundingClientRect();
   splitDrag = cols ? { start: a.top, total: a.height + b.height } : { start: a.left, total: a.width + b.width };
+  splitDrag.x = ev.clientX; splitDrag.y = ev.clientY;
   dividerEl.setPointerCapture(ev.pointerId);
   dividerEl.classList.add('drag');
 });
@@ -1004,13 +1006,21 @@ dividerEl.addEventListener('pointermove', (ev) => {
   if (!splitDrag) return;
   const pos = viewsEl.classList.contains('cols') ? ev.clientY : ev.clientX;
   // the pointer sits mid-divider, 4px (half the 8px divider) past the flat view
+  // a tap that barely moves is not a drag (it may be half of a double tap)
+  if (Math.hypot(ev.clientX - (splitDrag.x ?? 0), ev.clientY - (splitDrag.y ?? 0)) < 6) return;
   setSplit((pos - splitDrag.start - 4) / splitDrag.total);
-  syncControls();
 });
-const endSplitDrag = (): void => { splitDrag = null; dividerEl.classList.remove('drag'); };
+// a double tap (or double click) on the divider evens the split out again
+const endSplitDrag = (ev: PointerEvent): void => {
+  const tapped = splitDrag && ev.type === 'pointerup' && Math.hypot(ev.clientX - (splitDrag.x ?? 0), ev.clientY - (splitDrag.y ?? 0)) < 6;
+  splitDrag = null;
+  dividerEl.classList.remove('drag');
+  if (!tapped) { lastDividerTap = 0; return; }
+  const now = performance.now();
+  if (now - lastDividerTap < 400) { setSplit(0.5); lastDividerTap = 0; } else lastDividerTap = now;
+};
 dividerEl.addEventListener('pointerup', endSplitDrag);
 dividerEl.addEventListener('pointercancel', endSplitDrag);
-dividerEl.addEventListener('dblclick', () => { setSplit(0.5); syncControls(); });
 
 window.addEventListener('keydown', (ev) => {
   if ((ev.target as HTMLElement).tagName === 'INPUT' || (ev.target as HTMLElement).tagName === 'SELECT') return;
