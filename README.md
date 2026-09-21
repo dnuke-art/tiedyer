@@ -110,7 +110,7 @@ entry set is found by rendering texel IDs from a small orthographic camera looki
 that direction, so it is camera independent and replays after the geometry changes. From
 the entry set, wicking is a layered flow over the contact graph plus in-plane neighbours
 ("sideways wick"), so dye poured on the edge of a stack wicks inward. Bands are
-slabs standing on the table: tap a point and an angle (in 2D or 3D) and everything within
+slabs standing on the table: press a point and drag an angle (in 2D or 3D) and everything within
 the band's width of that vertical plane, every layer, is squeezed. Flat-fold bundles get real height (layer index times
 the plan's layer height, a slider) and voxel exposure, so the edges of a folded stack are dyeable.
 

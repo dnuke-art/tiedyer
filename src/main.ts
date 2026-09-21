@@ -1,5 +1,5 @@
 import './style.css';
-import { Vec2, Mat, apply, mul, side, normalize, dist, clipPolygon } from './geom';
+import { Vec2, Mat, apply, side, normalize, dist, clipPolygon } from './geom';
 import { Face, FoldLine, buildFaces, accordionFolds, zigzagFolds, diagonalFold, facesAtFolded, faceAtFlat, foldPreview, Axis } from './fold';
 import { flatFoldBundle, FlatFoldBundle } from './bundle';
 import { foldMesh } from './foldmesh';
@@ -165,22 +165,31 @@ function foldClick(p: Vec2, under: boolean): void {
   }
   dirty = true;
 }
-/** The band being tied, the same way a fold line is drawn: the first tap fixes a point,
- *  the pointer sets the angle, the second tap ties it. A band is a straight strip right
- *  around the bundle (a slab standing on the table), squeezing every layer it crosses. */
+/** The band being tied: press on the bundle (or the table) to fix a point, drag to set
+ *  the angle, release to tie it; there is no side to pick, unlike a fold. A band is a
+ *  straight strip right around the bundle (a slab standing on the table), squeezing
+ *  every layer it crosses. */
 let bandDraft: Vec2[] = [];
+/** a band drag is under way (the pointer is down) */
+let bandDragging = false;
 function bandDraftLine(): { p: Vec2; d: Vec2 } | null {
   if (tool !== 'band' || !bandDraft.length) return null;
   const a = bandDraft[0], b = hoverFolded;
   if (!b || dist(a, b) < 1e-6) return null;
   return { p: a, d: normalize({ x: b.x - a.x, y: b.y - a.y }) };
 }
-function bandClick(p: Vec2): void {
+function bandBegin(p: Vec2): void {
+  bandDraft = [p];
+  bandDragging = true;
   dirty = true;
-  if (!bandDraft.length) { bandDraft = [p]; return; }
+}
+/** release: tie the band from the pressed point towards p (a tap without a drag ties nothing) */
+function bandFinish(p: Vec2 | null): void {
   const a = bandDraft[0];
   bandDraft = [];
-  if (dist(a, p) < 0.2) return; // the same spot twice gives no angle
+  bandDragging = false;
+  dirty = true;
+  if (!a || !p || dist(a, p) < 0.3) return;
   const d = normalize({ x: p.x - a.x, y: p.y - a.y });
   tap();
   plan.bands.push({ kind: 'slab', p: [a.x, a.y, 0], n: [-d.y, d.x, 0], w: brush.bandW });
@@ -218,8 +227,6 @@ function lineAcross(p: Vec2, d: Vec2, margin = 1): [Vec2, Vec2] | null {
   lo -= margin; hi += margin;
   return [{ x: p.x + d.x * lo, y: p.y + d.y * lo }, { x: p.x + d.x * hi, y: p.y + d.y * hi }];
 }
-/** scratch layer for bands on the 2D bundle, clipped to the cloth */
-const bandLayer = document.createElement('canvas');
 /** the bands last handed to the 3D view */
 let last3dBands = '';
 
@@ -407,7 +414,7 @@ const ghLink = sideEl.querySelector('a.gh');
 const HINTS: Record<Tool, string> = {
   inspect: 'hover to see every layer under the cursor · in 3D, drag to orbit',
   dye: 'drag to squirt dye (or bleach) · hold still to keep pouring, it soaks deeper',
-  band: 'tap a point, move to set the angle, tap again to tie a band around the bundle · esc cancels',
+  band: 'press on the bundle, drag to set the angle, release to tie a band around it · esc cancels',
   fold: 'click two points for the crease, then click the side that folds over (shift = fold under) · in 3D, click the bundle or the table; drag to orbit',
   centre: 'click the flat cloth where you pinch',
   orbit: 'drag to orbit · wheel or pinch to zoom · shift-drag to pan · choose Dye or Band to work on it',
@@ -902,12 +909,13 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
       // the first finger already squirted before the second arrived: take that back, this is a camera gesture
       if (dragging && plan.strokes.length > dragStrokes0) { plan.strokes.length = dragStrokes0; hold = null; replay(); touched(); }
       dragging = false; lastStamp = null; lastStamp3 = null;
+      bandDraft = []; bandDragging = false;
       return;
     }
   }
-  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || tool === 'fold' || tool === 'band' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
+  if (is3d() && view3d && (ev.button === 2 || ev.button === 1 || tool === 'orbit' || tool === 'inspect' || tool === 'fold' || ev.altKey || ev.ctrlKey || ev.shiftKey)) {
     gesture = { kind: ev.shiftKey || ev.button === 1 ? 'pan' : 'orbit', x: ev.clientX, y: ev.clientY };
-    foldPress = ((tool === 'fold' && plan.mode === 'fold') || tool === 'band') && ev.button === 0 && !ev.altKey && !ev.ctrlKey
+    foldPress = tool === 'fold' && plan.mode === 'fold' && ev.button === 0 && !ev.altKey && !ev.ctrlKey
       ? { x: ev.clientX, y: ev.clientY, p: foldPoint3d(ev), under: ev.shiftKey } : null;
     if (!foldPress) hover3d = null;
     return;
@@ -918,6 +926,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
   if (is3d()) {
     dragStrokes0 = plan.strokes.length;
     if (tool === 'dye') { dragging = true; const h = hit3d(ev); lastStamp3 = h ? h.p : null; stampAt3d(ev); }
+    else if (tool === 'band') { const q = foldPoint3d(ev); if (q) { hoverFolded = q; bandBegin(q); } }
     return;
   }
   if (tool === 'dye') {
@@ -925,7 +934,7 @@ foldedCanvas.addEventListener('pointerdown', (ev) => {
     lastStamp = p;
     stampAt(p);
   } else if (tool === 'band') {
-    bandClick(p);
+    bandBegin(p);
   } else if (tool === 'fold' && plan.mode === 'fold') {
     foldClick(p, ev.shiftKey);
   }
@@ -935,12 +944,17 @@ const release = (ev: PointerEvent) => {
   if (touches.size < 2) pinchDist = 0;
   if (gesture) {
     gesture = null;
-    // a tap (no drag) with the fold or band tool in 3D places a point
+    // a tap (no drag) with the fold tool in 3D places a point
     if (foldPress) {
       const moved = Math.hypot(ev.clientX - foldPress.x, ev.clientY - foldPress.y);
-      if (moved < 6 && foldPress.p) { if (tool === 'band') bandClick(foldPress.p); else foldClick(foldPress.p, foldPress.under); }
+      if (moved < 6 && foldPress.p) foldClick(foldPress.p, foldPress.under);
       foldPress = null;
     }
+    return;
+  }
+  if (bandDragging) {
+    // released: tie the band where the drag ended (a cancelled touch ties nothing)
+    bandFinish(ev.type === 'pointerup' ? hoverFolded : null);
     return;
   }
   if (dragging) {
@@ -1118,65 +1132,33 @@ function drawFoldPreviewFlat(draft: { p: Vec2; d: Vec2; moveSign?: 1 | -1 }): vo
 }
 
 /** markers, brush cursor and band drag on the transparent canvas above the 3D view */
-/** Bands on the 2D bundle: each straight band as the strip it squeezes, clipped to the
- *  cloth (on a scratch layer, so overlapping layers do not darken it), and the band
- *  being tied as an outline with its fixed point. */
+/** Bands on the 2D bundle, shaded the way the 3D view shades them: each tied band darkens
+ *  the cloth it crosses, and the one being tied tints it orange. Drawn 'source-atop', so
+ *  only where the cloth is (the canvas is clear around it), for folds and twists alike. */
 function drawBands2d(ctx: CanvasRenderingContext2D, V: Mat): void {
   const dpr = renderer.dpr;
-  const draft = tool === 'band' ? bandDraftLine() : null;
-  const strips: { p: Vec2; d: Vec2; w: number }[] = [];
-  for (const b of plan.bands) if (isUpright(b)) strips.push({ p: { x: b.p[0], y: b.p[1] }, d: { x: b.n[1], y: -b.n[0] }, w: b.w });
   const quad = (p: Vec2, d: Vec2, w: number): Vec2[] | null => {
     const ends = lineAcross(p, d, 3);
     if (!ends) return null;
     const n = { x: -d.y * w / 2, y: d.x * w / 2 };
     return [{ x: ends[0].x + n.x, y: ends[0].y + n.y }, { x: ends[1].x + n.x, y: ends[1].y + n.y }, { x: ends[1].x - n.x, y: ends[1].y - n.y }, { x: ends[0].x - n.x, y: ends[0].y - n.y }].map((q) => apply(V, q));
   };
-  if (strips.length) {
-    const c = ctx.canvas;
-    if (bandLayer.width !== c.width || bandLayer.height !== c.height) { bandLayer.width = c.width; bandLayer.height = c.height; }
-    const t = bandLayer.getContext('2d')!;
-    t.setTransform(1, 0, 0, 1, 0, 0);
-    t.globalCompositeOperation = 'source-over';
-    t.clearRect(0, 0, c.width, c.height);
-    const clothFaces = isFold(bundle) ? faces : [];
-    if (clothFaces.length) {
-      // the cloth's footprint, then the strips kept only where it is
-      t.fillStyle = '#000';
-      for (const f of clothFaces) {
-        t.beginPath();
-        f.flat.forEach((q, i) => { const s = apply(mul(V, f.T), q); i ? t.lineTo(s.x, s.y) : t.moveTo(s.x, s.y); });
-        t.closePath();
-        t.fill();
-      }
-      t.globalCompositeOperation = 'source-in';
-    }
-    t.fillStyle = '#141418';
-    for (const s of strips) {
-      const q = quad(s.p, s.d, s.w);
-      if (!q) continue;
-      t.beginPath();
-      q.forEach((v, i) => (i ? t.lineTo(v.x, v.y) : t.moveTo(v.x, v.y)));
-      t.closePath();
-      t.fill();
-    }
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 0.55;
-    ctx.drawImage(bandLayer, 0, 0);
-    ctx.restore();
-  }
+  const fill = (q: Vec2[] | null, color: string): void => {
+    if (!q) return;
+    ctx.beginPath();
+    q.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  };
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  for (const b of plan.bands) if (isUpright(b)) fill(quad({ x: b.p[0], y: b.p[1] }, { x: b.n[1], y: -b.n[0] }, b.w), 'rgba(26,26,31,0.72)');
+  const draft = tool === 'band' ? bandDraftLine() : null;
+  if (draft) fill(quad(draft.p, draft.d, brush.bandW), 'rgba(255,122,26,0.5)');
+  ctx.restore();
   if (tool !== 'band') return;
-  if (draft) {
-    const q = quad(draft.p, draft.d, brush.bandW);
-    if (q) {
-      ctx.beginPath();
-      q.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(215,213,207,0.25)'; ctx.fill();
-      ctx.strokeStyle = '#d7d5cf'; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([6 * dpr, 4 * dpr]); ctx.stroke(); ctx.setLineDash([]);
-    }
-  }
+  // the pressed point, and the pointer (while hovering, or dragging to set the angle)
   for (const m of [...bandDraft, ...(hoverFolded ? [hoverFolded] : [])]) {
     const q = apply(V, m);
     ctx.beginPath(); ctx.arc(q.x, q.y, 4 * dpr, 0, Math.PI * 2);

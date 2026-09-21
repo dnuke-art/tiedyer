@@ -15,7 +15,7 @@ SIMPLER CONTROLS
 • Tap 3D again to fit the bundle back in view; pinch or scroll to zoom
 
 RUBBER BANDS THAT WORK LIKE REAL ONES
-• Tie a band the way you draw a fold: tap a point, turn it to the angle you want, tap again
+• Tie a band by pressing on the bundle and dragging to the angle you want
 • A band goes straight across the whole bundle and squeezes every layer, leaving a clean line in the pattern
 • Band width and Undo band are new; bands show on the 3D model where they cross it
 
