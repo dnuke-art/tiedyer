@@ -821,6 +821,23 @@ function stampAt(p: Vec2): void {
 /** 3D hit under a pointer event on the folded overlay: texel index and position (cached per pointer position + camera) */
 type Hit = { id: number; p: Vec3; d: Vec3; x: number; y: number } | null;
 let hitCache: { key: string; hit: Hit } | null = null;
+/** Every layer under bundle point p, as points on the flat cloth: the multi-point
+ *  preview. Ordered top first (underside first when the view is flipped), the same
+ *  numbering in the 2D bundle view and in 3D. */
+function columnAt(p: Vec2): Vec2[] {
+  const out: Vec2[] = [];
+  if (isFold(bundle)) {
+    let col = facesAtFolded(bundle.index, p);
+    if (view.flip) col = col.reverse();
+    for (const fi of col) out.push(apply(bundle.index.Tinv[fi], p));
+  } else if (isCloth(bundle)) {
+    let col = bundle.column(p);
+    if (view.flip) col = col.reverse();
+    for (const i of col) out.push(sim.texelCenter(i));
+  }
+  return out;
+}
+
 function hit3d(ev: PointerEvent | MouseEvent): Hit {
   if (!view3d) return null;
   const r = foldedCanvas.getBoundingClientRect();
@@ -1324,6 +1341,8 @@ function renderOnce(): void {
 
   // picking
   const flatMarkers: Vec2[] = [];
+  /** which marker is the layer under the cursor (the rest are the other layers there) */
+  let markPrimary = 0;
   const foldedMarkers: Vec2[] = [];
   let hoverFace = -1;
   let hoverInfo = '';
@@ -1349,15 +1368,9 @@ function renderOnce(): void {
   }
   if (hoverFolded && tool === 'fold' && foldDraft.length) {
     // drawing a fold: the crease preview replaces the per-layer markers
-  } else if (hoverFolded && isFold(bundle)) {
-    let col = facesAtFolded(bundle.index, hoverFolded);
-    if (view.flip) col = col.reverse();
-    for (const fi of col) flatMarkers.push(apply(bundle.index.Tinv[fi], hoverFolded));
-    if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
-  } else if (hoverFolded && isCloth(bundle)) {
-    let col = bundle.column(hoverFolded);
-    if (view.flip) col = col.reverse();
-    for (const i of col) flatMarkers.push(sim.texelCenter(i));
+  } else if (hoverFolded && bundle) {
+    const col = columnAt(hoverFolded);
+    for (const m of col) flatMarkers.push(m);
     if (col.length) hoverInfo = `bundle (${hoverFolded.x.toFixed(1)}, ${hoverFolded.y.toFixed(1)}): ${col.length} layer${col.length > 1 ? 's' : ''} under cursor, numbered from the ${view.flip ? 'underside' : 'top'}`;
   }
   let hit: ReturnType<typeof hit3d> = null;
@@ -1366,8 +1379,16 @@ function renderOnce(): void {
     if (hover3d) {
       hit = hit3d(hover3d);
       if (hit) {
-        flatMarkers.push(sim.texelCenter(hit.id));
-        hoverInfo = `bundle (${hit.p[0].toFixed(1)}, ${hit.p[1].toFixed(1)}, ${hit.p[2].toFixed(1)}) → flat (${sim.texelCenter(hit.id).x.toFixed(1)}, ${sim.texelCenter(hit.id).y.toFixed(1)})${bundle.exposed[hit.id] ? '' : ' (interior)'}`;
+        // the same multi-point preview as the 2D bundle: the cursor is over a place in
+        // the bundle, and every layer under it lies somewhere else on the flat cloth.
+        // The layer actually picked is the one drawn in the strong colour.
+        const own = sim.texelCenter(hit.id);
+        const col = columnAt({ x: hit.p[0], y: hit.p[1] });
+        markPrimary = col.findIndex((m) => sim.texelAt(m) === hit!.id);
+        if (markPrimary < 0) { col.unshift(own); markPrimary = 0; }
+        for (const m of col) flatMarkers.push(m);
+        const layers = col.length > 1 ? `, layer ${markPrimary + 1} of ${col.length} from the ${view.flip ? 'underside' : 'top'}` : '';
+        hoverInfo = `bundle (${hit.p[0].toFixed(1)}, ${hit.p[1].toFixed(1)}, ${hit.p[2].toFixed(1)}) → flat (${own.x.toFixed(1)}, ${own.y.toFixed(1)})${bundle.exposed[hit.id] ? '' : ' (interior)'}${layers}`;
       }
     }
     if (hoverFlat && hoverFlat.x >= 0 && hoverFlat.y >= 0 && hoverFlat.x < sim.W && hoverFlat.y < sim.H) {
@@ -1378,10 +1399,10 @@ function renderOnce(): void {
 
   const draft = foldDraftLine();
   const draftKey = draft ? `|fd${draft.p.x.toFixed(2)},${draft.p.y.toFixed(2)},${draft.d.x.toFixed(4)},${draft.d.y.toFixed(4)},${draft.moveSign ?? 0}` : '';
-  const flatKey = `${texVersion}|${hoverFace}|${flatMarkers.map((m) => `${m.x.toFixed(2)},${m.y.toFixed(2)}`).join(';')}|${view.showCreases}|${flatCanvas.clientWidth}x${flatCanvas.clientHeight}|${geomVersion}|${plan.mode}${tool === 'centre' ? '|c' : ''}${draftKey}`;
+  const flatKey = `${texVersion}|${hoverFace}|${markPrimary}|${flatMarkers.map((m) => `${m.x.toFixed(2)},${m.y.toFixed(2)}`).join(';')}|${view.showCreases}|${flatCanvas.clientWidth}x${flatCanvas.clientHeight}|${geomVersion}|${plan.mode}${tool === 'centre' ? '|c' : ''}${draftKey}`;
   if (flatKey !== lastFlatKey) {
     lastFlatKey = flatKey;
-    renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace);
+    renderer.drawFlat(sim, faces, view, flatMarkers, hoverFace, markPrimary);
     if (draft) drawFoldPreviewFlat(draft);
   }
   if (plan.mode === 'twist' && tool === 'centre' && flatKey === lastFlatKey) {

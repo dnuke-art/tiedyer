@@ -130,7 +130,7 @@ export class Renderer {
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
   }
 
-  drawFlat(sim: Sim, faces: Face[], opts: ViewOpts, markers: Vec2[], hoverFace = -1): void {
+  drawFlat(sim: Sim, faces: Face[], opts: ViewOpts, markers: Vec2[], hoverFace = -1, primary = 0): void {
     const c = this.flat;
     Renderer.fit(c, this.dpr);
     const ctx = c.getContext('2d')!;
@@ -170,7 +170,7 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
     }
-    this.drawMarkers(ctx, markers.map((m) => apply(V, m)));
+    this.drawMarkers(ctx, markers.map((m) => apply(V, m)), primary);
   }
 
   /**
@@ -271,12 +271,13 @@ export class Renderer {
     this.drawMarkers(ctx, markers.map((m) => apply(V, m)));
   }
 
-  private drawMarkers(ctx: CanvasRenderingContext2D, pts: Vec2[]): void {
+  /** `primary` is the marker drawn in the strong colour: the layer the cursor is on. */
+  private drawMarkers(ctx: CanvasRenderingContext2D, pts: Vec2[], primary = 0): void {
     const r = 6 * this.dpr;
     pts.forEach((q, i) => {
       ctx.beginPath();
       ctx.arc(q.x, q.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = i === 0 ? 'rgba(255,60,0,0.9)' : 'rgba(255,140,0,0.75)';
+      ctx.fillStyle = i === primary ? 'rgba(255,60,0,0.9)' : 'rgba(255,140,0,0.75)';
       ctx.fill();
       ctx.lineWidth = 1.5 * this.dpr;
       ctx.strokeStyle = '#fff';
