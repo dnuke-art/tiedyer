@@ -121,6 +121,19 @@ let tool: Tool = 'dye';
 /** r: squirt radius, cm; bandW: width of a rubber band, cm */
 const brush = { r: 3, amount: 0.8, pen: 10, dye: 0, flow: 1, bandW: 1 };
 
+/** Take the brush from a plan's own dye, so a squirt added to a preset soaks as deep as
+ *  the dye already on it: a kikko's corner dips pour 60 layer-fills each, and painting
+ *  one on with the stock 10 would stop a sixth of the way into a 72-layer bundle. */
+function brushFromPlan(p: Plan): void {
+  const s = [...p.strokes].reverse().find((x) => x.dye !== BLEACH) ?? p.strokes[p.strokes.length - 1];
+  if (!s) return;
+  brush.pen = s.pen;
+  brush.amount = s.amount;
+  if (s.kind !== 'dip') brush.r = s.r;
+}
+// the plan on screen at launch (the demo, or the autosave) sets the brush the same way
+brushFromPlan(plan);
+
 /** A squirt still being poured: while the button stays down on the spot, its soak grows
  *  by `flow` × the soak setting per second and the squirt is re-applied from the snapshot
  *  taken before it, so the liquid front keeps moving down through the layers. */
@@ -369,23 +382,23 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ..
 }
 const row = (...children: (Node | string)[]) => el('div', { class: 'row' }, ...children);
 /** label, slider and value on one line, in fixed columns so every slider lines up */
-const sliderRow = (label: string, input: HTMLElement, val: HTMLElement) => el('div', { class: 'row slide' }, el('label', { title: label }, label), input, val);
+const sliderRow = (label: string, input: HTMLElement, val: HTMLElement, title = label) => el('div', { class: 'row slide' }, el('label', { title }, label), input, val);
 const btn = (label: string, onclick: () => void, cls = '') => el('button', { class: cls, onclick }, label);
 
 /** controls re-read their value from the plan when it is replaced (demos, Load, New) */
 const syncers: (() => void)[] = [];
 function syncControls(): void { for (const s of syncers) s(); }
 
-function slider(label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(2)): HTMLElement {
+function slider(label: string, min: number, max: number, step: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(2), title?: string): HTMLElement {
   const val = el('span', { class: 'val' }, fmt(get()));
   const input = el('input', { type: 'range', min, max, step, value: get() }) as HTMLInputElement;
   input.addEventListener('input', () => { set(parseFloat(input.value)); val.textContent = fmt(parseFloat(input.value)); });
   syncers.push(() => { input.value = String(get()); val.textContent = fmt(get()); });
-  return sliderRow(label, input, val);
+  return sliderRow(label, input, val, title);
 }
 
 /** Slider whose position is logarithmic in the value. */
-function logSlider(label: string, min: number, max: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(1), onChange?: () => void): HTMLElement {
+function logSlider(label: string, min: number, max: number, get: () => number, set: (v: number) => void, fmt = (v: number) => v.toFixed(1), onChange?: () => void, title?: string): HTMLElement {
   const lo = Math.log(min), hi = Math.log(max);
   const toPos = (v: number) => (Math.log(v) - lo) / (hi - lo);
   const val = el('span', { class: 'val' }, fmt(get()));
@@ -393,7 +406,7 @@ function logSlider(label: string, min: number, max: number, get: () => number, s
   input.addEventListener('input', () => { const v = Math.exp(lo + parseFloat(input.value) * (hi - lo)); set(v); val.textContent = fmt(v); });
   if (onChange) input.addEventListener('change', onChange);
   syncers.push(() => { input.value = String(toPos(get())); val.textContent = fmt(get()); });
-  return sliderRow(label, input, val);
+  return sliderRow(label, input, val, title);
 }
 
 function numberInput(get: () => number, set: (v: number) => void, attrs: Attrs = {}): HTMLInputElement {
@@ -604,9 +617,9 @@ function buildSidebar(): void {
   /** Presets dropdown: picking one loads that demo, then the menu shows its title again. */
   const presetSelect = (): HTMLSelectElement => {
     const presets: Record<string, () => void> = {
-      kikko: () => { plan = demoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
-      spiral: () => { plan = spiralDemoPlan(); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); },
-      bleach: () => { plan = bleachDemoPlan(); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
+      kikko: () => { plan = demoPlan(); brushFromPlan(plan); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
+      spiral: () => { plan = spiralDemoPlan(); brushFromPlan(plan); pendingSteps = DEMO_STEPS; refreshModeUI(); reconfigure(); refreshSwatches(); },
+      bleach: () => { plan = bleachDemoPlan(); brushFromPlan(plan); refreshModeUI(); reconfigure(); refreshSwatches(); doSteps(DEMO_STEPS); },
     };
     const sel = el('select', { title: 'Load a ready-made fold and dye' },
       el('option', { value: '', disabled: true, selected: true, hidden: true }, 'Presets'),
@@ -648,7 +661,8 @@ function buildSidebar(): void {
       swatchWrap,
       slider('brush cm', 0.5, 20, 0.5, () => brush.r, (v) => { brush.r = v; dirty = true; }, (v) => v.toFixed(1)),
       slider('amount', 0.05, 2, 0.05, () => brush.amount, (v) => { brush.amount = v; }),
-      logSlider('soak layers', 0.5, 150, () => brush.pen, (v) => { brush.pen = v; }, (v) => v < 10 ? v.toFixed(1) : v.toFixed(0)),
+      logSlider('soak layers', 0.5, 150, () => brush.pen, (v) => { brush.pen = v; }, (v) => v < 10 ? v.toFixed(1) : v.toFixed(0), undefined,
+        'How much liquid one squirt pours, counted in layers it can fill. This is what sets how deep into the bundle the dye reaches; the readout on the bundle view reports how many layers the last squirt got to. Holding still pours more.'),
       slider('hold flow', 0, 3, 0.1, () => brush.flow, (v) => { brush.flow = v; }, (v) => v > 0 ? `${v.toFixed(1)}×/s` : 'off'),
       slider('build-up', 0, 5, 0.25, () => plan.params.buildup, (v) => { plan.params.buildup = v; touched(); }, (v) => v > 0 ? `+${v.toFixed(2)}` : 'off'),
       row(btn('Dip whole bundle', () => { addStroke({ kind: 'dip', dye: brush.dye, amount: brush.amount, pen: brush.pen }); }),
@@ -664,7 +678,8 @@ function buildSidebar(): void {
         btn('Rewind', () => { replay(); }), el('label', {}, 't'), stepCounter),
       slider('speed', 1, 200, 1, () => stepsPerFrame, (v) => { stepsPerFrame = v; }, (v) => `${v}/f`),
       slider('spread', 0, 0.2, 0.005, () => plan.params.dPlane, (v) => { plan.params.dPlane = v; touched(); }, (v) => v.toFixed(3)),
-      slider('thru layers', 0, 0.55, 0.005, () => plan.params.dZ, (v) => { plan.params.dZ = v; touched(); }, (v) => v.toFixed(3)),
+      slider('thru layers', 0, 0.55, 0.005, () => plan.params.dZ, (v) => { plan.params.dZ = v; touched(); }, (v) => v.toFixed(3),
+        'How fast dye already in the cloth spreads from layer to layer as the batch runs. It softens the edges of what a squirt reached; it does not make a squirt reach further. For that, raise soak layers under Dye & bindings.'),
       slider('fixing rate', 0, 0.2, 0.002, () => plan.params.adsorb, (v) => { plan.params.adsorb = v; touched(); }, (v) => v.toFixed(3)),
       slider('capacity', 0.1, 3, 0.05, () => plan.params.capacity, (v) => { plan.params.capacity = v; touched(); }),
       slider('band halo cm', 0.1, 8, 0.1, () => plan.params.pressRadius, (v) => { plan.params.pressRadius = v; pressChanged(); }, (v) => v.toFixed(1)),
